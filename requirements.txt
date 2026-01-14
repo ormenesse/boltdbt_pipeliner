@@ -1,0 +1,12 @@
+boto3==1.35.84
+databricks_connect==15.3.1
+fsspec==2023.10.0
+nbformat==5.10.4
+numpy==2.3.4
+pandas==2.3.3
+polars==1.34.0
+pyarrow==14.0.2
+PyYAML==6.0.1
+PyYAML==6.0.3
+Requests==2.32.5
+xlrd==2.0.2

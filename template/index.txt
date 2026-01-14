@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tables Index</title>
+  <style>
+    :root {{
+      --accent: {accent};
+      --accent-hover: {accent_hover};
+      --text: {text};
+      --page-bg: {page_bg};
+      --panel-bg: {panel_bg};
+      --border: {border};
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, Helvetica;
+      color: var(--text); background: var(--page-bg);
+    }}
+    .layout {{ display: grid; grid-template-columns: 20vw 1fr; min-height: 100vh; }}
+    aside {{
+      border-right: 1px solid var(--border); background: var(--panel-bg); padding: 16px 12px; position: sticky; top:0; height: 100dvh; overflow:auto;
+    }}
+    header.logo-wrap {{ display:flex; flex-direction: column; align-items:center; gap:12px; padding: 4px 6px 12px; border-bottom:1px solid var(--border); margin-bottom:12px; }}
+    .logo {{ width: 10vw; height:auto; }}
+    .logo-text {{ font-weight: 700; color: var(--accent); }}
+    .search {{ width: 100%; margin: 8px 0 12px; }}
+    .search input {{
+      width: 100%; padding: 8px 10px; border:1px solid var(--border); border-radius: 8px; outline: none;
+    }}
+    nav ul {{ list-style:none; margin:0; padding:0; }}
+    nav li a {{
+      display:block; padding:8px 10px; border-radius:8px; color: var(--text); text-decoration:none;
+    }}
+    nav li a:hover {{ background: #fde7ea; }}
+    nav li a.active {{ background: var(--accent); color:#fff; }}
+    main {{ padding: 0; }}
+    .toolbar {{
+      display:flex; gap:8px; align-items:center; justify-content: space-between;
+      border-bottom:1px solid var(--border); padding:10px 12px; background:#fff;
+    }}
+    .toolbar .btn {{
+      appearance:none; background: var(--accent); color:#fff; border:none; border-radius:8px; padding:6px 10px; cursor:pointer; font-size: 13px;
+    }}
+    .toolbar .btn:hover {{ background: var(--accent-hover); }}
+    .viewer {{ height: calc(100vh); width: 100%; border: none; display:block; }}
+    @media (max-width: 960px) {{
+      .layout {{ grid-template-columns: 1fr; }}
+      aside {{ position: static; height: auto; }}
+      .viewer {{ height: 70vh; }}
+    }}
+    aside nav {{ font-size: 12px; }}
+    nav li a {{ padding: 6px 8px; line-height: 1.25; }}
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <header class="logo-wrap">
+        <div class="Menu">
+          {LOGO_HTML}
+        </div>
+        <div class="logo-text">Documentation</div>
+      </header>
+      <div class="search">
+        <input id="filter" type="search" placeholder="Filter tables…" />
+      </div>
+      <nav>
+        <ul id="list">
+          {NAV_ITEMS}
+        </ul>
+      </nav>
+    </aside>
+    <main>
+      <!-- <div class="toolbar">
+        <div id="current-title">Select a table</div>
+        <div>
+          <a id="open-new" class="btn" href="#" target="_blank" rel="noreferrer">Open in new tab</a>
+        </div>
+      </div> -->
+      <iframe id="viewer" class="viewer" src=""></iframe>
+    </main>
+  </div>
+  <script>
+    const listEl = document.getElementById('list');
+    const viewer = document.getElementById('viewer');
+    const currentTitle = document.getElementById('current-title');
+    const openNew = document.getElementById('open-new');
+    const filterInput = document.getElementById('filter');
+
+    function setActive(link) {{
+      for (const a of listEl.querySelectorAll('a')) a.classList.remove('active');
+      if (link) link.classList.add('active');
+    }}
+
+    function load(file, linkEl) {{
+      viewer.src = file;
+      openNew.href = file;
+      if (linkEl) {{
+        currentTitle.textContent = linkEl.textContent.trim();
+      }}
+      history.replaceState(null, '', '#' + encodeURIComponent(file));
+      setActive(linkEl);
+    }}
+
+    listEl.addEventListener('click', (e) => {{
+      const a = e.target.closest('a[data-file]');
+      if (!a) return;
+      e.preventDefault();
+      load(a.getAttribute('data-file'), a);
+    }});
+
+    // Filter
+    filterInput.addEventListener('input', () => {{
+      const q = filterInput.value.toLowerCase();
+      for (const li of listEl.querySelectorAll('li')) {{
+        const a = li.querySelector('a');
+        li.style.display = a.textContent.toLowerCase().includes(q) ? '' : 'none';
+      }}
+    }});
+
+    // On load: hash route or first item
+    window.addEventListener('DOMContentLoaded', () => {{
+      const links = Array.from(listEl.querySelectorAll('a[data-file]'));
+      if (links.length === 0) return;
+      const fromHash = decodeURIComponent(location.hash.replace(/^#/, ''));
+      const match = links.find(a => a.getAttribute('data-file') === fromHash);
+      load((match || links[0]).getAttribute('data-file'), match || links[0]);
+    }});
+  </script>
+</body>
+</html>

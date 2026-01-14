@@ -1,0 +1,54 @@
+style_colors:
+  layers_colors:
+    raw:
+      stroke: "#3D1313"
+      fill:   "#EBA5A5"
+    flatfile:
+      stroke: "#333333"
+      fill:   "#EFEFEF"
+    bronze:
+      stroke: "#EB661F"
+      fill:   "#FFF1E7"
+    silver:
+      stroke: "#A1AAA4"
+      fill:   "#FCFDFD"
+    domain:
+      stroke: "#90A42D"
+      fill:   "#F7F8E9"
+
+  body_background: "#353535ff"
+  body_text: "#500b3aff"
+
+  panel_background: "#f7f7f7"
+  panel_border: "#ddd"
+  panel_shadow: "rgba(0,0,0,.35)"
+
+  heading_accent: "#d54e62ff"
+  rule_color: "#1f2937"
+
+  meta_text: "#94a3b8"
+  table_cell_text: "#555555"
+  link_text: "#60a5fa"
+
+  btn_bg: "#d54e62ff"
+  btn_text: "#fff"
+  btn_hover_bg: "#b8122d"
+
+  code_bg: "#353535ff"
+  code_border: "#353535ff"
+  code_inset_highlight: "rgba(255,255,255,.03)"
+
+  fade_top: "rgba(11,16,33,0)"
+  fade_mid: "rgba(11,16,33,.9)"
+  fade_bottom: "rgba(11,16,33,1)"
+
+  mermaid_text: "#111111"
+  mermaid_line: "#888888"
+  mermaid_tertiary: "#aaaaaa"
+  
+  index_accent: "#e31837"
+  index_accent_hover: "#b8122d"
+  index_text: "#1a1a1a"
+  index_page_bg: "#ffffff"
+  index_panel_bg: "#f7f7f7"
+  index_border: "#e5e5e5"
