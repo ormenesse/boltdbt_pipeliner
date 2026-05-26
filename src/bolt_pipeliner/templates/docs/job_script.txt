@@ -1,0 +1,34 @@
+# Job: {layer} - {module}
+# Auto-generated. Edit configs/etl_config.yaml + the job module, not this file.
+
+import types
+
+print("=" * 60)
+print("Processing {layer} - {module}")
+print("=" * 60)
+
+{job_code}
+
+layer = "{layer_lower}"
+module_path = "{module_path}"
+input_tables = {input_tables}
+output_table_name = "{output_table_name}"
+partition_by = {partition_by}
+unload = {unload}
+incremental = {incremental}
+
+etl = ETLBase(
+    spark=spark,
+    layer=layer,
+    bucket=flatfile_bucket if layer == "flatfile" else output_bucket,
+    input_tables=input_tables,
+    output_table_name=output_table_name,
+    partition_by=partition_by,
+    unload=unload,
+    incremental=incremental,
+)
+
+etl.process_data = types.MethodType(process_data, etl)
+etl.run()
+
+print(f"Completed {layer} - {module}")

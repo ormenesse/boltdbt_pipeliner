@@ -1,0 +1,10 @@
+{job_script_name} = BashOperator(
+|    task_id="{job_script_name}",
+|    bash_command="bolt run --config configs/etl_config.yaml --silver",
+|    # Replace BashOperator with your environment's operator:
+|    #   - EmrContainerOperator      for AWS EMR on EKS
+|    #   - DatabricksSubmitRunOperator for Databricks
+|    #   - KubernetesPodOperator     for vanilla k8s
+|    #   - PythonOperator            for in-process runs
+|    # Pass `--<layer>` flags and a config path appropriate to {database}.
+|)

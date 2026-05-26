@@ -1,1673 +1,491 @@
+# bolt_pipeliner
 
-# BOLTDBT PIPELINER - ETL Pipeline Documentation
+A config-driven ETL framework for **Apache Spark + Iceberg**, **Pandas**, and **Polars**, with sibling base classes for **Spark + Delta** and **Spark + Parquet**. Pipelines are declared in a single YAML file and executed through one CLI:
 
-  
+```bash
+bolt init my_project --preset medallion
+cd my_project
+bolt run --silver
+bolt test
+bolt generate documentation
+```
 
-## Overview
+The framework is inspired by dbt's `tests:` ergonomics but stays Python-first: jobs are plain modules exposing a `process_data(self, input_tables)` function, the runtime wires them onto a shared `ETLBase`, and downstream artifacts (Airflow DAGs, HTML docs, standalone layer scripts, notebooks, Snowflake DDLs) are regenerated from the same config.
 
-  
-
-The BOLTDBT PIPELINER is a comprehensive ETL (Extract, Transform, Load) pipeline built on Apache Spark with Iceberg tables, designed to process customer data for Entergy. The system follows a medallion architecture (Bronze → Silver → Domain layers) and provides automated code generation, documentation, and Airflow DAG creation.
-
-  
-
-## Table of Contents
-
-  
-1. [Core Components](#core-components)
-
-2. [ETL Configuration](#etl-configuration)
-
-3. [ETL Folder Structure](#etl-folder-structure)
-
-4. [Code Generation System](#code-generation-system)
-
-5. [Getting Started Guide](#getting-started-guide)
-
-6. [Adding New ETL Jobs](#adding-new-etl-jobs)
-
-  
+> Browsing the repo? The **package code** lives under [`src/bolt_pipeliner/`](./src/bolt_pipeliner). Sample projects (a runnable demo plus two large reference projects) live under [`examples/`](./examples).
 
 ---
 
-  
+## Table of contents
 
-## Core Components
+1. [Installation](#installation)
+2. [Quick start — `bolt init`](#quick-start--bolt-init)
+3. [CLI reference](#cli-reference)
+4. [Config schema (`etl_config.yaml`)](#config-schema-etl_configyaml)
+5. [Base classes (engine selection)](#base-classes-engine-selection)
+6. [Writing an ETL job](#writing-an-etl-job)
+7. [Incremental processing](#incremental-processing)
+8. [Data-quality tests (`bolt test`)](#data-quality-tests-bolt-test)
+9. [Code generation (`bolt generate`)](#code-generation-bolt-generate)
+10. [Spark session profiles](#spark-session-profiles)
+11. [Macros (reusable transforms)](#macros-reusable-transforms)
+12. [Documentation flow without Spark](#documentation-flow-without-spark)
+13. [Project layout](#project-layout)
+14. [Troubleshooting](#troubleshooting)
 
-  
+---
 
-### 1. main.py
+## Installation
 
-  
-
-**Purpose**: The main entry point for running ETL jobs across different layers.
-
-  
-
-**Key Features**:
-
--  **Command-line interface** with arguments for different ETL layers (`--flatfile`, `--bronze`, `--silver`, `--domain`)
-
--  **Dynamic job execution** based on YAML configuration
-
--  **Environment detection** (dev/test/prod) through AWS account ID
-
--  **Modular execution** allowing you to run specific layers or all layers
-
-  
-
-**Usage Examples**:
+Requires Python ≥ 3.10.
 
 ```bash
+pip install -e .
 
-# Run all layers
+# add dev tooling for pytest / ruff / mypy
+pip install -e ".[dev]"
 
-python  main.py
-
-  
-
-# Run only bronze layer
-
-python  main.py  --bronze
-
-  
-
-# Run multiple layers
-
-python  main.py  --bronze  --silver
-
-  
-
-# Use custom config
-
-python  main.py  --config  custom_config.yaml  --silver
-
+# add Databricks Connect / PySpark when you need Spark locally
+pip install -e ".[spark]"
 ```
 
-  
+The install registers the `bolt` console script.
 
-**How it works**:
+---
 
-1. Loads the ETL configuration from `etl_config.yaml`
+## Quick start — `bolt init`
 
-2. Creates a Spark session using `spark_session.py`
+Interactive scaffolder:
 
-3. Iterates through requested layers and executes jobs defined in the config
+```bash
+bolt init my_project
+```
 
-4. For each job, dynamically imports the corresponding module and attaches the `process_data` method to the ETLBase class
+The wizard asks:
 
-5. Executes the ETL pipeline with proper error handling and logging
+| Question | Choices |
+|---|---|
+| Architecture | flat • medallion (bronze/silver/gold) • diamond (bronze/silver/gold/diamond) • custom |
+| Engine | pyspark • pandas • polars |
+| Spark profile (pyspark only) | local • databricks • emr • glue • gcp • azure • k8s |
+| Execution env | terminal • notebook • airflow • databricks-jobs |
+| ML training layer | yes / no |
 
-  
+Skip the prompts with a preset:
 
-### 2. etl_config.yaml
+```bash
+bolt init my_project --preset minimal      # pandas, flatfile + bronze
+bolt init my_project --preset medallion    # pyspark/local, bronze/silver/gold
+bolt init my_project --preset diamond      # full medallion + diamond + ML, airflow
+bolt init my_project --preset pandas       # pandas medallion, notebook
+bolt init my_project --preset polars       # polars medallion, notebook
+```
 
-  
+The scaffolder writes:
 
-**Purpose**: Central configuration file that defines all ETL jobs, their dependencies, and execution parameters.
+```
+my_project/
+├── configs/
+│   ├── etl_config.yaml
+│   └── spark/<profile>.toml          # only when engine=pyspark
+├── etl/
+│   ├── _flatfile/flatfile_example.py
+│   ├── 0_bronze/bronze_example.py
+│   ├── 1_silver/silver_example.py
+│   └── 2_gold/gold_example.py
+├── macros/__init__.py
+├── models/train_example.py            # only when ML is enabled
+├── tests/test_smoke.py
+└── README.md
+```
 
-  
+It refuses to write into a non-empty directory.
 
-**Structure**:
+---
+
+## CLI reference
+
+```
+bolt init      PROJECT_NAME [--path PATH] [--preset NAME]
+bolt run       [--config PATH] [--flatfile|--bronze|--silver|--gold|--diamond]
+bolt test      [--config PATH] [--layer L] [--module M]
+bolt generate  {airflow|documentation|layers|notebook|snowflakeddl|all} [--config PATH]
+```
+
+| Command | What it does |
+|---|---|
+| `bolt init` | Interactive project scaffolder (above). |
+| `bolt run` | Walks the layers declared in `configs/etl_config.yaml` and executes every job in dependency order. Pick a subset with the layer flags. |
+| `bolt test` | Runs the `tests:` block on each job. Exits non-zero on failure. |
+| `bolt generate` | Regenerates Airflow DAGs, HTML docs, standalone layer scripts, the notebook, and Snowflake DDLs from the config. Use `all` to run all of them. |
+
+`bolt --help` and `bolt <subcommand> --help` print the full option set.
+
+---
+
+## Config schema (`etl_config.yaml`)
 
 ```yaml
-
 configs:
-
-output_bucket: "s3:/..."
-
-flatfile_bucket: "s3://.."
-
-schema: datamart
-
-catalog: dev_catalog
-
-  
+  output_bucket: "s3://my_project/tables/"
+  flatfile_bucket: "s3://my_project/flatfiles/"
+  schema: my_project          # destination schema (Iceberg namespace, Snowflake schema, …)
+  catalog: dev_catalog        # destination catalog for non-bronze reads/writes
+  incremental_column: year_month   # optional; default "year_month" for Iceberg
+                                   # base, "yearMonth" for Pandas/Polars bases
 
 layers:
-
-flatfile: etl/_flatfile
-
-bronze: etl/0_bronze
-
-silver: etl/1_silver
-
-domain: etl/2_domain
-
-  
-
-# Job definitions for each layer
-
-flatfile: []
-
-bronze: []
-
-silver: []
-
-domain: []
-
-```
-
-  
-
-**Key Configuration Elements**:
-
-  
-
--  **`configs`**: Global settings including S3 buckets, schema names, and catalog configurations
-
--  **`layers`**: Defines the folder structure for each ETL layer
-
--  **Job definitions**: Each job includes:
-
--  `module`: Python file name (without .py extension)
-
--  `description`: Human-readable description
-
--  `input_tables`: Dictionary mapping aliases to source tables/files
-
--  `output_table_name`: Target table name
-
--  `partition_by`: List of columns for partitioning
-
--  `incremental`: Boolean for incremental processing
-
--  `unload`: Boolean for whether to save table results
-
-  
-
-**Example Job Configuration**:
-
-```yaml
-
--  module: silver_fct_account_calls_monthly
-
-description: "Aggregated call count and hold time metrics at account-month grain"
-
-incremental: true
-
-class_name: ETLBase
-
-input_tables:
-
-t_agent_calls: bronze_t_agent_calls
-
-output_table_name: fct_account_calls_monthly
-
-partition_by:
-
--  year_month
-
-```
-
-  
-
-### ETLBase Class Integration
-
-  
-
-**Purpose**: The `ETLBase` class in `etl_base.py` is the core engine that processes all ETL jobs defined in `etl_config.yaml`. It provides a standardized framework for data loading, processing, and unloading across all layers.
-This class can be configured and changed with the company demands, it's framework agnostic. In this README, it is presented as the best solution for ENTERGY datamart which has, in it's core, many time series tables.
-
-  
-
-#### **How ETLBase Works with Configuration**
-
-  
-
-**1. Table Naming Convention**:
-
-The ETLBase class automatically constructs the final table name by combining the layer and output_table_name:
-
-```python
-
-# From etl_base.py line 47
-
-self.iceberg_table =  f"{self.save_catalog}.{self.FIXED_SCHEMA}.{self.layer}_{self.output_table_name}"
-
-```
-
-  
-
-**Example**:
-
-- Layer: `silver`
-
-- Output table name: `fct_account_calls_monthly`
-
-- Final table: `dev_catalog.etrdatamart.silver_fct_account_calls_monthly`
-
-  
-
-**2. Configuration Parameter Mapping**:
-
-  
-
-| Config Parameter | ETLBase Property | Purpose |
-
-|------------------|------------------|---------|
-
-| `incremental` | `self.incremental` | Controls incremental vs full refresh processing |
-
-| `partition_by` | `self.partition_by` | Defines table partitioning strategy |
-
-| `unload` | `self.unload` | Determines whether to save results to Iceberg |
-
-| `input_tables` | `self.input_table_names` | Maps input table aliases to source tables |
-
-  
-
-#### **Incremental Processing**
-
-  
-
-**How it works**:
-
-```python
-
-# From etl_base.py lines 68-89
-
-def  check_if_tables_exists_find_yearmonths(self):
-
-if  not  self.incremental:
-
-self.year_months = None
-
-return
-
-# If incremental and table exists, process last 3 months
-
-if  self._table_exists(self.iceberg_table):
-
-# Calculate last 3 months + current month
-
-self.year_months =  [calculated_month_sequence]
-
-else:
-
-self.year_months = None # Full refresh for new tables
-
-```
-
-  
-
-**Configuration Example**:
-
-```yaml
-
--  module: silver_fct_account_calls_monthly
-
-incremental: true  # Enables incremental processing
-
-partition_by:
-
--  year_month  # Required for incremental processing
-
-```
-
-  
-
-**Behavior**:
-
--  **First run**: Processes all historical data (full refresh)
-
--  **Subsequent runs**: Only processes last 3 months of data
-
--  **Performance benefit**: Significantly faster for large historical datasets
-
-  
-
-#### **Table Existence and Creation**
-
-  
-
-**Automatic Table Management**:
-
-```python
-
-# From etl_base.py lines 154-166
-
-if  not  self.table_exists:
-
-# First write → CREATE TABLE
-
-self._create_table(processed_df)
-
-else:
-
-# Table exists → UPDATE PARTITIONS
-
-if  self.incremental and  self.year_months is  not None:
-
-target_df = processed_df.filter(F.col("year_month").isin(self.year_months))
-
-self._replace_table_partitions(target_df)
-
-else:
-
-# Full refresh
-
-self._replace_table_partitions(processed_df)
-
-```
-
-  
-
-**Key Features**:
-
--  **Automatic schema creation**: Creates Iceberg tables on first run
-
--  **Partition management**: Handles partition creation and updates
-
--  **Schema evolution**: Supports adding new columns automatically
-
-  
-
-#### **Advanced Partition Unloading Pattern**
-
-  
-
-**Performance Optimization**: For large datasets, you can implement custom partition unloading within the `process_data` function to improve performance and memory management.
-
-  
-
-**Example from `silver_fct_account_invoice_details_monthly.py`**:
-
-```python
-
-def  process_data(self, input_tables):
-
-# ... data processing logic ...
-
-# Process data month by month for performance
-
-for ym in month_seq:
-
-# Filter data for current month
-
-to_write = pivot_df.filter(F.col("year_month")  == ym)
-
-# Write partition incrementally
-
-if  not  self.table_exists:
-
-self._create_table(to_write)
-
-else:
-
-self._replace_table_partitions(to_write)
-
-# Clean up memory
-
-if  'df'  in  locals():
-
-df.unpersist()
-
-if  'pivot_df'  in  locals():
-
-pivot_df.unpersist()
-
-# Return empty DataFrame to skip ETLBase unload
-
-return  self.spark.createDataFrame([],  schema='contract_account_id INT, year_month INT')
-
-```
-
-  
-
-**Benefits of Custom Partition Unloading**:
-
-1.  **Memory efficiency**: Processes data in smaller chunks
-
-2.  **Performance**: Avoids memory overflow on large datasets
-
-3.  **Fault tolerance**: If job fails, completed partitions are preserved
-
-4.  **Parallel processing**: Can be extended for parallel partition processing
-
-  
-
-**Configuration for Custom Unloading**:
-
-```yaml
-
--  module: silver_fct_account_invoice_details_monthly
-
-unload: false  # Disable ETLBase unload since we handle it manually
-
-incremental: true
-
-partition_by:
-
--  year_month
-
-```
-
-  
-
-#### **Data Loading Behavior by Layer**
-
-  
-
-**Flatfile Layer**:
-
-```python
-
-# From etl_base.py lines 105-113
-
-if  self.layer ==  "flatfile":
-
-for key, rel_path in  self.input_table_names.items():
-
-self.input_tables[key]  =  self.spark.read.csv(
-
-f"{self.bucket}/{rel_path}",
-
-header=True,  inferSchema=True,  multiLine=True,
-
-escape='"',  quote='"'
-
-)
-
-```
-
-  
-
-**Bronze Layer**:
-
-```python
-
-# From etl_base.py lines 115-129
-
-if  self.layer ==  "bronze":
-
-for key in  self.input_table_names.keys():
-
-if  '.'  in  self.input_table_names[key]:
-
-# External catalog reference
-
-self.input_tables[key]  =  self.spark.sql(
-
-f"SELECT * FROM {self.catalog}.{self.input_table_names[key]}"
-
-)
-
-else:
-
-# Internal table reference
-
-table_ident =  f"{self.save_catalog}.{self.FIXED_SCHEMA}.{self.input_table_names[key]}"
-
-self.input_tables[key]  =  self.spark.read.table(table_ident)
-
-```
-
-  
-
-**Silver/Domain Layers**:
-
-```python
-
-# From etl_base.py lines 131-135
-
-for key, name in  self.input_table_names.items():
-
-table_ident =  f"{self.save_catalog}.{self.FIXED_SCHEMA}.{name}"
-
-self.input_tables[key]  =  self.spark.read.table(table_ident)
-
-```
-
-  
-
-#### **Configuration Best Practices**
-
-  
-
-**1. Incremental Processing Setup**:
-
-```yaml
-
--  module: silver_fct_account_calls_monthly
-
-incremental: true
-
-partition_by:
-
--  year_month  # Required for incremental processing
-
-unload: true
-
-```
-
-  
-
-**2. Full Refresh Jobs**:
-
-```yaml
-
--  module: silver_dim_customer_demographic
-
-incremental: false  # Always process all data
-
-unload: true
-
-```
-
-  
-
-**3. Custom Partition Unloading**:
-
-```yaml
-
--  module: silver_fct_large_dataset
-
-incremental: true
-
-partition_by:
-
--  year_month
-
-unload: false  # Handle unloading manually in process_data
-
-```
-
-  
-
-**4. Memory-Intensive Jobs**:
-
-```yaml
-
--  module: silver_fct_complex_aggregation
-
-incremental: true
-
-partition_by:
-
--  year_month
-
--  account_type  # Multiple partitions for better performance
-
-unload: true
-
-```
-
-  
-
-#### **Error Handling and Logging**
-
-  
-
-**Built-in Logging**:
-
-```python
-
-# ETLBase provides consistent logging across all jobs
-
-self.logging_string =  f"{self.layer}  {self.output_table_name}"
-
-logging.info(f"{self.logging_string} - Loading data...")
-
-logging.info(f"{self.logging_string} - Processing data...")
-
-logging.info(f"{self.logging_string} - Saving data...")
-
-```
-
-  
-
-**Configuration for Debugging**:
-
-```yaml
-
--  module: silver_fct_debug_job
-
-description: "Debug job with detailed logging"
-
-incremental: false  # Use full refresh for debugging
-
-unload: true
-
-```
-
-  
-
-This integration between `etl_config.yaml` and `ETLBase` provides a powerful, standardized framework for ETL processing with automatic optimization, error handling, and performance tuning capabilities.
-
-  
-
-### 3. ETL Folder Structure
-
-  
-
-The `etl/` folder contains the actual ETL job implementations organized by layers:
-
-  
-
-#### **`etl/_flatfile/`** - Raw Data Ingestion
-
--  **Purpose**: Processes CSV files and external data sources
-
--  **Data Sources**: Storm events, NPS surveys, gas prices, CPI data, zip codes
-
--  **Processing**: Minimal transformation, mainly data cleaning and standardization
-
--  **Output**: Iceberg tables in the flatfile layer
-
-  
-
-**Example**: `flatfile_storm_events.py`
-
-```python
-
-def  process_data(self, input_tables):
-
-logging.info(f"{self.logging_string} - Initializing processing...")
-
-result_df = input_tables['storm_events'].select(
-
-input_tables['storm_events'].columns
-
-)
-
-return result_df
-
-```
-
-  
-
-#### **`etl/0_bronze/`** - Raw Data Storage
-
--  **Purpose**: Ingests data from various source systems (Salesforce, CCS, ADMS, etc.)
-
--  **Data Sources**: Customer data warehouse, contact center, weather systems
-
--  **Processing**: Basic data type conversions and column selection
-
--  **Output**: Standardized raw data in Iceberg format
-
-  
-
-**Example**: `bronze_account.py`
-
-```python
-
-def  process_data(self, input_tables):
-
-result_df = input_tables['account'].select([
-
-'id',  'name',  'type',  'billingstreet',  'billingcity',
-
-# ... other columns
-
-])
-
-return result_df
-
-```
-
-  
-
-#### **`etl/1_silver/`** - Business Logic Layer
-
--  **Purpose**: Applies business rules, aggregations, and transformations
-
--  **Processing**: Complex joins, calculations, time-based aggregations
-
--  **Features**: Rolling windows, year-over-year comparisons, customer metrics
-
--  **Output**: Business-ready datasets for analytics
-
-  
-
-**Example**: `silver_fct_account_calls_monthly.py`
-
-```python
-
-def  process_data(self, input_tables):
-
-# Complex aggregation logic with rolling windows
-
-# Customer call metrics by month
-
-# 3-month, 6-month, 12-month rolling averages
-
-return processed_df
-
-```
-
-  
-
-#### **`etl/2_domain/`** - Domain-Specific Aggregations
-
--  **Purpose**: Creates domain-specific fact tables for specific business areas
-
--  **Processing**: Combines multiple silver tables into comprehensive views
-
--  **Examples**: Customer experience, financial metrics, operational data
-
--  **Output**: Final business intelligence datasets
-
-  
-
-### 4. spark_session.py
-
-  
-
-**Purpose**: Configures and creates the Apache Spark session with all necessary settings for the BOLTDBT PIPELINER environment.
-
-  
-
-**Key Features**:
-
-  
-
-#### **Environment Detection**:
-
-```python
-
-environment = {
-
-'942249008577': 'prod',
-
-'783574663203': 'test',
-
-'308359645995': 'dev'
-
-}.get(account_id)
-
-```
-
-  
-
-#### **Spark Configuration**:
-
--  **Memory settings**: 27GB driver/executor memory, 4 cores each
-
--  **Dynamic allocation**: 1-20 executors based on workload
-
--  **Performance tuning**: Adaptive query execution, shuffle optimization
-
--  **S3 integration**: Fast upload, multi-object delete settings
-
-  
-
-#### **Iceberg + Glue Catalog Setup**:
-
-```python
-
-# Dev catalog for BOLTDBT PIPELINER
-
-.config("spark.sql.catalog.dev_catalog",  "org.apache.iceberg.spark.SparkCatalog")
-
-.config("spark.sql.catalog.dev_catalog.catalog-impl",  "org.apache.iceberg.aws.glue.GlueCatalog")
-
-  
-
-# Shared catalog for source data
-
-.config("spark.sql.catalog.shared_catalog",  "org.apache.iceberg.spark.SparkCatalog")
-
-```
-
-  
-
-#### **Kubernetes Labels**:
-
-- Product: nps-sensitivity
-
-- Developer: vormene
-
-- Domain: emrnotebook
-
-  
-
----
-
-  
-
-## Code Generation System
-
-  
-
-### generate.py
-
-  
-
-**Purpose**: Main orchestrator for all code generation tasks. This script intelligently analyzes your ETL configuration and generates all necessary artifacts for deployment, documentation, and orchestration.
-
-  
-
-**Available Options**:
-
-```bash
-
-python  generate.py  airflow  # Generate Airflow DAGs
-
-python  generate.py  documentation  # Generate HTML documentation
-
-python  generate.py  layers  # Generate ETL layer scripts
-
-python  generate.py  notebook  # Generate Jupyter notebook
-
-python  generate.py  snowflakeddl  # Generate Snowflake DDLs
-
-python  generate.py  all  # Generate everything
-
-```
-
-  
-
-**Smart Dependency Resolution**: The generation system is intelligent enough to automatically determine the correct execution order of your ETL jobs, regardless of how you order them in `etl_config.yaml`. It analyzes the `input_tables` dependencies and creates a proper DAG (Directed Acyclic Graph) for execution.
-
-  
-
-### Detailed Option Explanations
-
-  
-
-#### **1. Airflow DAG Generation (`python generate.py airflow`)**
-
-  
-
-**What it does**:
-
-- Analyzes all ETL jobs in your configuration
-
-- Creates dependency graphs based on `input_tables` relationships
-
-- Generates Airflow DAGs with proper task dependencies
-
-- Configures EMR container operators for Spark job execution
-
-  
-
-**Output Location**: `outputs/airflow/`
-
-  
-
-**Generated Files**:
-
--  **`dags/etr_datamart_dag.py`**: Main Airflow DAG file
-
--  **`dags/etr_datamart_flatfile_dag.py`**: Flatfile-specific DAG
-
--  **`dags/etr_datamart_bronze_dag.py`**: Bronze layer DAG
-
--  **`dags/etr_datamart_silver_dag.py`**: Silver layer DAG
-
--  **`dags/etr_datamart_domain_dag.py`**: Domain layer DAG
-
--  **`code/`**: Individual EMR container operator scripts for each ETL job
-
-  
-
-**Key Features**:
-
--  **Automatic dependency resolution**: Jobs are ordered based on their input dependencies
-
--  **EMR integration**: Uses EMR container operators for Spark execution
-
--  **Error handling**: Built-in retry logic and failure notifications
-
--  **Resource management**: Configurable Spark parameters per job
-
--  **Monitoring**: Task success/failure tracking
-
-  
-
-**Coding Rules**:
-
-- Job order in `etl_config.yaml` doesn't matter - dependencies are auto-resolved
-
-- Each job becomes an Airflow task with proper upstream/downstream relationships
-
-- Failed jobs automatically retry with exponential backoff
-
-- Jobs can be run independently or as part of the full pipeline
-
-  
-
-**Deployment Instructions**:
-
-1.  **Upload DAG files** to:
-
-```
-
-s3://entergy-bdi-dataeng-code-repo-dev/mwaa/dags/entergy-bdi-etl/etrdatamart/
-
-```
-
-2.  **Upload EMR container operator scripts** to:
-
-```
-
-s3://entergy-bdi-dataeng-code-repo-dev/entergy-bdi-etl/etl_framework/scripts/etrdatamart/
-
-```
-
-3.  **Go to your airflow and check wether the Dags are in the system or not.**
-  
-
-#### **2. Documentation Generation (`python generate.py documentation`)**
-
-  
-
-**What it does**:
-
-- Creates comprehensive HTML documentation for your entire ETL pipeline
-
-- Generates data lineage diagrams using Mermaid
-
-- Creates interactive table schemas and descriptions
-
-- Builds dependency visualization graphs
-
-  
-
-**Output Location**: `outputs/documentation/`
-
-  
-
-**Generated Files**:
-
--  **`index.html`**: Main documentation homepage
-
--  **`tables/`**: Individual table documentation pages
-
--  **`logo.png`**: Project branding (copied from `template/logo.png`)
-
--  **Interactive features**: Clickable lineage diagrams, searchable tables
-
-  
-
-**Prerequisites**:
-
-- Ensure `logo.png` exists in the `template/` folder before generating documentation
-
-- The logo will be automatically copied to the documentation output
-
-  
-
-**Key Features**:
-
--  **Data lineage visualization**: Shows how data flows from source to final tables
-
--  **Table documentation**: Auto-generated from job descriptions and schemas
-
--  **Interactive diagrams**: Mermaid-based dependency graphs
-
--  **Responsive design**: Works on desktop and mobile devices
-
--  **Search functionality**: Find tables and jobs quickly
-
-  
-
-**Styling**: Uses `style_config.yaml` for consistent branding and colors across all documentation.
-
-  
-
-#### **3. ETL Layer Scripts (`python generate.py layers`)**
-
-  
-
-**What it does**:
-
-- Creates standalone, executable Python scripts for each ETL layer
-
-- Generates self-contained scripts with all necessary imports and configurations
-
-- Creates scripts that can run independently of the main pipeline
-
-  
-
-**Output Location**: `outputs/layers/`
-
-  
-
-**Generated Files**:
-
--  **`bronze.py`**: Executable script for all bronze layer jobs
-
--  **`silver.py`**: Executable script for all silver layer jobs
-
--  **`domain.py`**: Executable script for all domain layer jobs
-
--  **`flatfile.py`**: Executable script for all flatfile jobs
-
-  
-
-**Key Features**:
-
--  **Self-contained**: Each script includes Spark session creation and configuration
-
--  **Dependency-aware**: Jobs execute in the correct order based on dependencies
-
--  **Error handling**: Comprehensive logging and error reporting
-
--  **Modular execution**: Can run individual layers or the entire pipeline
-
-  
-
-**Usage**:
-
-```bash
-
-# Run bronze layer only
-
-python  outputs/layers/bronze.py
-
-# Run silver layer only
-
-python  outputs/layers/silver.py
-
-```
-
-  
-
-#### **4. Jupyter Notebook Generation (`python generate.py notebook`)**
-
-  
-
-**What it does**:
-
-- Creates a comprehensive Jupyter notebook for interactive development and testing
-
-- Generates cells for each ETL job with example code
-
-- Provides data exploration and visualization capabilities
-
-- Includes sample queries and data quality checks
-
-  
-
-**Output Location**: `outputs/notebook/`
-
-  
-
-**Generated Files**:
-
--  **`etl_jobs_notebook.ipynb`**: Complete Jupyter notebook
-
-  
-
-**Key Features**:
-
--  **Interactive development**: Test individual transformations before deployment
-
--  **Data exploration**: Built-in data quality checks and sample queries
-
--  **Visualization**: Matplotlib/Plotly integration for data visualization
-
--  **Documentation**: Markdown cells explaining each transformation
-
--  **Reproducible**: Can be used for data science and analytics work
-
-  
-
-**Use Cases**:
-
-- Development and testing of new ETL jobs
-
-- Data exploration and analysis
-
-- Performance tuning and optimization
-
-- Data quality assessment
-
-  
-
-#### **5. Snowflake DDL Generation (`python generate.py snowflakeddl`)**
-
-  
-
-**What it does**:
-
-- Generates Snowflake DDL (Data Definition Language) statements
-
-- Creates table creation scripts based on your ETL job configurations
-
-- Generates schema definitions and partition specifications
-
-- Creates scripts for setting up Snowflake tables
-
-  
-
-**Output Location**: `outputs/snowflake_ddls/`
-
-  
-
-**Generated Files**:
-
--  **`snowflake_ddl.sql`**: Complete DDL script for all tables
-
--  **`schema.py`**: Python schema definitions
-
--  **`schema.csv`**: Tabular schema information
-
-  
-
-**Key Features**:
-
--  **Table creation**: DDL statements for all ETL output tables
-
--  **Schema definitions**: Column types, constraints, and descriptions
-
--  **Partition specifications**: Based on your `partition_by` configurations
-
--  **Cross-platform compatibility**: Works with Snowflake data warehouse
-
-  
-
-**Use Cases**:
-
-- Setting up Snowflake tables for data warehouse
-
-- Schema migration and version control
-
-- Documentation of table structures
-
-- Cross-platform data architecture
-
-  
-
-### Smart Dependency Resolution
-
-  
-
-**How it works**:
-
-1.  **Dependency Analysis**: The system reads your `etl_config.yaml` and analyzes the `input_tables` for each job
-
-2.  **Graph Construction**: Creates a dependency graph where each job is a node and dependencies are edges
-
-3.  **Topological Sorting**: Uses graph algorithms to determine the correct execution order
-
-4.  **Cycle Detection**: Prevents circular dependencies that would cause infinite loops
-
-5.  **Layer Grouping**: Groups jobs by layer while maintaining proper dependencies
-
-  
-
-**Example**:
-
-```yaml
-
-# Order in config doesn't matter - system will auto-resolve
+  flatfile: etl/_flatfile
+  bronze:   etl/0_bronze
+  silver:   etl/1_silver
+  gold:     etl/2_gold
+
+flatfile:
+  - module: flatfile_storm_events
+    description: "NOAA storm events."
+    class_name: ETLBase                  # picks the Spark+Iceberg base
+    input_tables:
+      storm_events: "storm_events.csv"
+    output_table_name: storm_events
 
 silver:
-  -  module: silver_job_c
+  - module: silver_fct_state_gas_cpi_monthly
+    description: "Monthly CPI + gas prices by state."
+    class_name: ETLBase
+    incremental: true
     input_tables:
-      source: bronze_job_a  # Depends on bronze_job_a
-  -  module: silver_job_a
-    input_tables:
-      source: bronze_job_b  # Depends on bronze_job_b
-  -  module: silver_job_b
-    input_tables:
-      source: bronze_job_a  # Depends on bronze_job_a
+      cpi: flatfile_cpi_regional
+      gas: flatfile_gas_prices
+    output_table_name: fct_state_gas_cpi_monthly
+    partition_by: [year_month]
+    tests:
+      - not_null: [year_month, state]
+      - unique:   [year_month, state]
+      - row_count: { min: 1 }
+      - freshness: { column: year_month, max_age_days: 90 }
 ```
 
-  
+### Per-job keys
 
-**Execution Order** (automatically determined):
-
-1.  `bronze_job_a` (no dependencies)
-
-2.  `bronze_job_b` (depends on bronze_job_a)
-
-3.  `silver_job_a` (depends on bronze_job_b)
-
-4.  `silver_job_c` (depends on bronze_job_a)
-
-  
-
-### Coding Rules and Best Practices
-
-  
-
-#### **ETL Configuration Rules**:
-
-1.  **Module naming**: Must match the Python file name (without .py extension)
-
-2.  **Input table aliases**: Use descriptive names that match your processing logic
-
-3.  **Output table naming**: Follow the pattern `{layer}_{table_name}`
-
-4.  **Dependency clarity**: Make input dependencies explicit and clear
-
-5.  **Description quality**: Write detailed descriptions for documentation generation
-
-  
-
-#### **Job Implementation Rules**:
-
-1.  **Function signature**: Always use `def process_data(self, input_tables):`
-
-2.  **Return DataFrame**: Always return a PySpark DataFrame
-
-3.  **Logging**: Use `self.logging_string` for consistent log messages
-
-4.  **Error handling**: Include proper exception handling
-
-5.  **Data validation**: Add data quality checks where appropriate
-
-  
-
-#### **Performance Considerations**:
-
-1.  **Partitioning**: Use `partition_by` for large tables
-
-2.  **Incremental processing**: Enable `incremental: true` for time-series data
-
-3.  **Resource optimization**: Consider Spark memory and executor settings
-
-4.  **Data types**: Use appropriate data types to minimize memory usage
-
-  
-
-### style_config.yaml
-
-  
-
-**Purpose**: Defines the visual styling for generated documentation and maintains consistent branding across all generated artifacts.
-
-  
-
-**Key Sections**:
-
--  **Layer colors**: Different colors for each ETL layer (bronze, silver, domain)
-
--  **UI elements**: Backgrounds, borders, shadows for documentation panels
-
--  **Typography**: Text colors, headings, links
-
--  **Mermaid diagrams**: Colors for data lineage visualization
-
-  
-
-**Customization**: You can modify colors, fonts, and styling to match your organization's branding guidelines.
-
-  
+| Key | Required | Notes |
+|---|---|---|
+| `module` | yes | Filename of the job module inside the layer's directory (no `.py`). |
+| `input_tables` | yes | Dict of alias → upstream table or file. Peco-style `_input_tables:` is normalized to `input_tables:` at load time. |
+| `output_table_name` | yes | Becomes `{layer}_{output_table_name}` in the destination. |
+| `class_name` | no (default `ETLBase`) | Picks the base class. Built-ins: `ETLBase`, `ETLBaseDelta`, `ETLBaseParquet`, `ETLBaseParquetPandas`, `ETLBaseParquetPolars`. Also accepts dotted paths like `mypkg.bases.MyCustom`. |
+| `partition_by` | no | List of column names. |
+| `incremental` | no (default false) | See [Incremental processing](#incremental-processing). |
+| `unload` | no (default true) | If false, the runtime won't call `unload_data` — useful for manual partition writes. |
+| `description` | no | Free text; surfaces in `bolt generate documentation`. |
+| `tests` | no | See [Data-quality tests](#data-quality-tests-bolt-test). |
 
 ---
 
-  
+## Base classes (engine selection)
 
-## Getting Started Guide
+Five sibling base classes ship in `bolt_pipeliner.bases.*`. They expose the same lifecycle methods (`check_if_tables_exists_find_yearmonths` → `load_data` → `process_data` → `unload_data`); jobs don't subclass them — the runner picks one per job via the YAML `class_name:` key.
 
-  
+| `class_name` | Engine | Storage | When to use |
+|---|---|---|---|
+| `ETLBase` (default) | PySpark | Iceberg (Glue) | Large-scale ETL with ACID Iceberg tables. |
+| `ETLBaseDelta` | PySpark | Delta (Synapse) | Synapse / Databricks Delta lake. |
+| `ETLBaseParquet` | PySpark | Parquet on S3 | Spark without a metastore. |
+| `ETLBaseParquetPandas` | Pandas + PyArrow | Parquet | Notebook / single-node ETL. |
+| `ETLBaseParquetPolars` | Polars + PyArrow | Parquet | Single-node ETL with Polars ergonomics. |
 
-### Prerequisites
+Engines are imported **lazily**: importing `bolt_pipeliner` does not pull in PySpark / Polars / Pandas. Engine modules are loaded only when a job actually instantiates one. You can therefore run a pure-Pandas project without installing PySpark.
 
-  
+To register your own base class, point `class_name:` at a dotted path:
 
-1.  **Python Environment**: Python 3.8+ with required packages
-
-2.  **AWS Credentials**: Configured for the appropriate environment (dev/test/prod)
-
-3.  **Spark Environment**: Access to EMR or Spark cluster
-
-4.  **S3 Access**: Permissions to read/write to BOLTDBT PIPELINER buckets
-
-  
-
-### Initial Setup
-
-  
-
-1.  **Clone the repository**:
-
-```bash
-
-git clone <repository-url>
-
-cd etr_datamart
-
+```yaml
+- module: silver_custom
+  class_name: mypkg.bases.MyAuditingBase
+  input_tables: { src: bronze_src }
+  output_table_name: custom
 ```
-
-  
-
-2.  **Install dependencies**:
-
-```bash
-
-pip install -r requirements.txt
-
-```
-
-  
-
-3.  **Configure AWS credentials**:
-
-```bash
-
-aws configure
-
-# or set environment variables
-
-export  AWS_ACCESS_KEY_ID=your_key
-
-export  AWS_SECRET_ACCESS_KEY=your_secret
-
-```
-
-  
-
-4.  **Generate all artifacts**:
-
-```bash
-
-python generate.py all
-
-```
-
-  
-
-### Running ETL Jobs
-
-  
-
-1.  **Run all layers**:
-
-```bash
-
-python main.py
-
-```
-
-  
-
-2.  **Run specific layer**:
-
-```bash
-
-python main.py --bronze
-
-python main.py --silver
-
-python main.py --domain
-
-```
-
-  
-
-3.  **Run with custom config**:
-
-```bash
-
-python main.py --config custom_config.yaml --silver
-
-```
-
-  
 
 ---
 
-  
+## Writing an ETL job
 
-## Adding New ETL Jobs
-
-  
-
-### Step 1: Create the ETL Module
-
-  
-
-1.  **Navigate to the appropriate layer folder**:
-
-```bash
-
-cd etl/1_silver/ # or appropriate layer
-
-```
-
-  
-
-2.  **Create a new Python file**:
+Every job module exports one top-level function:
 
 ```python
-
-# silver_fct_new_metric.py
-
-import logging
-
+# etl/1_silver/silver_fct_account_calls_monthly.py
 from pyspark.sql import functions as F
 
-def  process_data(self, input_tables):
-
-  logging.info(f"{self.logging_string} - Initializing processing...")
-  # Your transformation logic here
-  result_df = input_tables['source_table'].select(
-    F.col('account_id'),
-    F.col('metric_value'),
-    F.current_timestamp().alias('processed_at')
-  )
-  return result_df
-
+def process_data(self, input_tables):
+    """`self` is the ETLBase instance, so you can call self.spark, self.year_months,
+    self._create_table, self._replace_table_partitions, etc.
+    """
+    calls = input_tables["t_agent_calls"]
+    return (
+        calls
+        .groupBy("account_id", "year_month")
+        .agg(F.count("*").alias("call_count"))
+    )
 ```
 
-  
+The runner monkey-patches your function onto the `ETLBase` instance via `types.MethodType`, so `self` exposes:
 
-### Step 2: Update etl_config.yaml
+| Attribute / method | Purpose |
+|---|---|
+| `self.spark` | The Spark session (Spark bases only). |
+| `self.input_tables` | Dict of alias → DataFrame, already loaded. |
+| `self.year_months` | The incremental window (list of YYYYMM ints), or `None` for a full run. |
+| `self.partition_by`, `self.incremental`, `self.unload` | Echo of the YAML config. |
+| `self._create_table(df)` / `self._replace_table_partitions(df)` | Manual write helpers. |
+| `self.iceberg_table` / `self._write_table` / `self.parquet_path` / `self.dataset_path` | Destination identifier (varies by base). |
+| `self.logging_string` | A short `"<layer> <output_table_name>"` label for logs. |
 
-  
-
-Add your job configuration to the appropriate layer section:
-
-  
-
-```yaml
-
-silver:
-
--  module: silver_fct_new_metric
-  description: "New business metric calculation"
-  incremental: true
-  class_name: ETLBase
-  input_tables:
-    source_table: bronze_source_table
-  output_table_name: fct_new_metric
-  partition_by:
-    -  year_month
-  unload: true
-
-```
-
-  
-
-### Step 3: Test Your Job
-
-  
-
-1.  **Run the specific job**:
-
-```bash
-
-python main.py --silver
-
-```
-
-  
-
-2.  **Check the logs** for any errors or issues
-
-  
-
-3.  **Verify the output** in the Iceberg catalog:
-
-```sql
-
-SELECT  *  FROM dev_catalog.etrdatamart.silver_fct_new_metric LIMIT  10;
-
-```
-
-  
-
-### Step 4: Generate Updated Artifacts
-
-  
-
-After adding your job, regenerate all artifacts:
-
-  
-
-```bash
-
-python  generate.py  all
-
-```
-
-  
-
-This will update:
-
-- Airflow DAGs with your new job
-
-- Documentation with the new table
-
-- Layer scripts with the new module
-
-- Notebook with the new processing logic
-
-  
-
-### Step 5: Deploy to Airflow
-
-  
-
-1.  **Copy the generated DAG** to your Airflow DAGs folder
-
-2.  **Update Airflow configuration** if needed
-
-3.  **Test the DAG** in the Airflow UI
-
-4.  **Schedule the job** according to your requirements
-
-  
+A Pandas job looks the same but returns a `pd.DataFrame`; a Polars job returns a `pl.DataFrame`. The base class decides how to persist it.
 
 ---
 
-  
+## Incremental processing
 
-## Best Practices
-
-  
-
-### ETL Job Development
-
-  
-
-1.  **Follow naming conventions**:
-
-- Bronze: `bronze_<source_system>_<table_name>`
-
-- Silver: `silver_<fact/dim>_<business_concept>_<granularity>`
-
-- Domain: `domain_<domain_area>_<granularity>`
-
-  
-
-2.  **Use incremental processing** when possible:
+Set `incremental: true` and list a partition column whose name matches `incremental_column` (default `year_month`):
 
 ```yaml
-
-incremental: true
-
-partition_by:
-
--  year_month
-
+- module: silver_fct_calls
+  incremental: true
+  partition_by: [year_month]
 ```
 
-  
+When the output table already exists, `ETLBase.run()` computes `self.year_months` as `[current_month - 3 … current_month]`. The base then filters `processed_df` by `year_month ∈ self.year_months` before `overwritePartitions()`.
 
-3.  **Include proper logging**:
+**Requirements:** the returned DataFrame must include the configured incremental column, and that column must be in `partition_by`. If a job does not fit this monthly model, either set `incremental: false` or set `unload: false` and write partitions yourself inside `process_data`, then return an empty DataFrame.
+
+### Advanced — manual partition unloading
+
+For memory-heavy jobs, process month-by-month and write each partition yourself:
 
 ```python
-
-logging.info(f"{self.logging_string} - Processing started...")
-
+def process_data(self, input_tables):
+    raw = input_tables["raw"]
+    months_to_process = self.year_months or _list_all_months(raw)
+    for ym in months_to_process:
+        chunk = transform_one_month(raw, ym)
+        if not self.table_exists:
+            self._create_table(chunk)
+            self.table_exists = True
+        else:
+            self._replace_table_partitions(chunk)
+    return self.spark.createDataFrame([], chunk.schema)   # empty → unload_data no-ops
 ```
 
-  
-
-4.  **Handle data quality**:
-
-- Add data validation
-
-- Handle null values appropriately
-
-- Include data quality metrics
-
-  
-
-### Configuration Management
-
-  
-
-1.  **Keep descriptions clear and detailed**
-
-2.  **Use consistent naming for input table aliases**
-
-3.  **Specify partitioning strategy for large tables**
-
-4.  **Document any special processing requirements**
-
-  
-
-### Performance Optimization
-
-  
-
-1.  **Use appropriate partitioning** for large tables
-
-2.  **Leverage incremental processing** for time-series data
-
-3.  **Optimize Spark configurations** based on data size
-
-4.  **Monitor job performance** and adjust resources as needed
-
-  
+Pair it with `unload: false` in YAML.
 
 ---
 
-  
+## Data-quality tests (`bolt test`)
+
+Declare checks under each job's `tests:` block (dbt-style):
+
+```yaml
+silver:
+  - module: silver_fct_account_calls_monthly
+    output_table_name: fct_account_calls_monthly
+    tests:
+      - not_null:  [year_month, account_id]
+      - unique:    [year_month, account_id]
+      - row_count: { min: 1 }
+      - freshness: { column: year_month, max_age_days: 90 }
+      - schema:    [year_month, account_id, call_count]
+```
+
+Built-in checks (all five work uniformly on Spark / Pandas / Polars):
+
+| Check | Parameters |
+|---|---|
+| `not_null` | `columns: [str]` |
+| `unique` | `columns: [str]` (composite key) |
+| `row_count` | `min: int = 1`, `max: int \| None` |
+| `schema` | `expected: [str]` (extras allowed) |
+| `freshness` | `column: str`, `max_age_days: int` (accepts YYYYMM int or date) |
+
+Run them:
+
+```bash
+bolt test                     # every job in every layer
+bolt test --layer silver
+bolt test --module fct_account_calls_monthly
+```
+
+`bolt test` exits non-zero if any check fails, so it slots straight into CI.
+
+### Notebook usage
+
+Each `TestResult` implements `_repr_html_()`, so the results render with colored PASS/FAIL banners in Jupyter:
+
+```python
+from bolt_pipeliner.testing import run_checks
+results = run_checks(df, [{"not_null": ["year_month"]}, {"row_count": {"min": 1}}])
+results          # rendered inline as HTML
+```
+
+---
+
+## Code generation (`bolt generate`)
+
+`bolt generate <target> [--config PATH]` regenerates downstream artifacts from `etl_config.yaml`. Targets:
+
+| Target | Output | What you get |
+|---|---|---|
+| `airflow` | `outputs/airflow/{code,dags}/` | One DAG per layer + one standalone Spark script per job. The DAG template uses plain Airflow operators; swap in `EmrContainerOperator` / `DatabricksSubmitRunOperator` / `KubernetesPodOperator` as needed. |
+| `documentation` | `outputs/documentation/` | HTML index + per-table pages with Mermaid lineage. Always emits `outputs/schema/schema.py` for the [Spark-free documentation flow](#documentation-flow-without-spark). |
+| `layers` | `outputs/layers/<layer>.py` | One executable script per layer, inlining every job in dependency order. Useful for ad-hoc runs without Airflow. |
+| `notebook` | `outputs/notebook/etl_jobs_notebook.ipynb` | A Jupyter notebook with one cell per job (plus Spark session + ETLBase setup cells). |
+| `snowflakeddl` | `outputs/snowflake_ddls/` | `CREATE TABLE` DDLs derived from `outputs/schema/schema.csv`. |
+| `all` | (all of the above) | |
+
+The generators read templates from the package (`src/bolt_pipeliner/templates/`); they're engine-agnostic and don't ship any cloud-specific code paths.
+
+### Smart dependency resolution
+
+The order of jobs inside each layer in YAML is **irrelevant** — the generators build a DAG by matching each job's `input_tables` values against other jobs' `output_table_name` (prefixed with the layer name) and topologically sort.
+
+---
+
+## Spark session profiles
+
+`bolt_pipeliner.sessions.create_session(profile)` dispatches to one module per runtime under `bolt_pipeliner.sessions/`:
+
+| Profile | Module | Status |
+|---|---|---|
+| `local` | `sessions/local.py` | Implemented — returns the active SparkSession or builds one. |
+| `databricks`, `emr`, `glue`, `gcp`, `azure`, `k8s` | `sessions/<profile>.py` | Stubs today; planned. |
+
+Override via `BOLT_SPARK_PROFILE` (read by the generated standalone scripts) or by editing `configs/spark/<profile>.toml`.
+
+```toml
+# configs/spark/local.toml
+[runtime]
+target = "local"
+
+[spark]
+"spark.sql.shuffle.partitions" = 200
+"spark.serializer" = "org.apache.spark.serializer.KryoSerializer"
+```
+
+---
+
+## Macros (reusable transforms)
+
+Project-local reusable transforms live in `macros/` and are plain Python — no DSL:
+
+```python
+# macros/dates.py
+def month_floor(df, column):
+    """Round `column` down to the first of the month. Engine-aware via isinstance."""
+    ...
+```
+
+```python
+# etl/1_silver/silver_invoice.py
+from macros.dates import month_floor
+
+def process_data(self, input_tables):
+    return month_floor(input_tables["raw"], "issue_date")
+```
+
+The framework deliberately does not ship a macro DSL or registry. Use plain imports.
+
+---
+
+## Documentation flow without Spark
+
+`bolt generate documentation` always emits a Spark-free schema-extraction script alongside the HTML so notebook-only developers can produce schemas without a local Spark install:
+
+1. `bolt generate documentation`
+   → writes `outputs/schema/schema.py` and the HTML (falling back to whatever `schema.csv` exists, or empty if none).
+2. Copy `schema.py` into the environment that has Spark (Databricks notebook, EMR shell, …) and run it. It prints a CSV.
+3. Save that CSV to `outputs/schema/schema.csv`.
+4. Re-run `bolt generate documentation` — the HTML now picks up the real column definitions, and `bolt generate snowflakeddl` can derive Snowflake DDLs from the same CSV.
+
+---
+
+## Project layout
+
+```
+my_project/
+├── configs/
+│   ├── etl_config.yaml           # source of truth — layers, jobs, tests
+│   ├── style_config.yaml         # colors used by `bolt generate documentation`
+│   └── spark/<profile>.toml      # cluster overrides per runtime profile
+├── etl/
+│   ├── _flatfile/                # raw ingestion
+│   ├── 0_bronze/                 # cleaned raw
+│   ├── 1_silver/                 # business logic
+│   └── 2_gold/                   # domain-specific facts / marts
+├── macros/                       # reusable Python transforms
+├── models/                       # optional ML training jobs
+├── tests/                        # pytest unit tests (project-specific)
+└── outputs/                      # generated; gitignored
+    ├── airflow/{dags,code}/
+    ├── documentation/
+    ├── layers/
+    ├── notebook/
+    ├── schema/
+    └── snowflake_ddls/
+```
+
+Framework code itself lives under `src/bolt_pipeliner/`:
+
+```
+src/bolt_pipeliner/
+├── runner.py                     # job loop
+├── bases/                        # five sibling ETLBase variants
+├── sessions/                     # Spark profile dispatch
+├── config/loader.py              # YAML loader + key normalization
+├── generators/                   # airflow / documentation / layers / notebook / snowflake_ddl
+├── templates/{airflow,docs}/     # bundled templates
+├── testing/                      # data-quality checks + runner
+└── cli/                          # typer app (init / run / generate / test)
+```
+
+And sample projects live under `examples/`:
+
+```
+examples/
+├── demo/        # runnable PySpark + Iceberg medallion (used in this repo's CI)
+├── entergy/    # large production-scale snapshot — read-only reference
+└── peco/       # multi-engine reference (PySpark + Pandas + Polars on Parquet)
+```
+
+See [`examples/README.md`](./examples/README.md) for a guided tour.
+
+---
 
 ## Troubleshooting
 
-  
+**`ImportError: cannot import name 'AnalyzeArgument' from 'pyspark.sql.udtf'`**
+Your local PySpark install is older than the package's expected version. Reinstall PySpark or pin to a version matching your cluster.
 
-### Common Issues
+**`bolt run` finds no jobs for a layer**
+Check that the layer is declared under `layers:` in `etl_config.yaml` *and* has a matching top-level section (e.g. `silver:`). The loader treats placeholder values like `silver: ...` as empty layers.
 
-  
+**Generated documentation has empty schema columns**
+Spark wasn't reachable. Run `outputs/schema/schema.py` in your Spark environment, save the printed CSV to `outputs/schema/schema.csv`, and rerun `bolt generate documentation`.
 
-1.  **Module not found**: Check that the module name in `etl_config.yaml` matches the Python file name
-
-2.  **Table not found**: Verify that input tables exist and are accessible
-
-3.  **Permission errors**: Ensure AWS credentials have proper S3 and Glue permissions
-
-4.  **Memory issues**: Adjust Spark memory settings in `spark_session.py`
-
-  
-
-### Debugging
-
-  
-
-1.  **Check Spark UI** for job execution details
-
-2.  **Review logs** for specific error messages
-
-3.  **Test individual components** before running full pipeline
-
-4.  **Use incremental mode** for faster iteration during development
-
-  
+**Adding a new layer**
+1. Add `mylayer: etl/9_mylayer` under `layers:` in `etl_config.yaml`.
+2. Create `etl/9_mylayer/` with one or more job modules exposing `process_data(self, input_tables)`.
+3. List the jobs under the new top-level `mylayer:` section.
+4. Run `bolt run --mylayer` — wait, layer flags are baked into the CLI today (`--flatfile`, `--bronze`, `--silver`, `--gold`, `--diamond`). For arbitrary layer names, run `bolt run` (all layers) or invoke the runner programmatically: `from bolt_pipeliner.runner import run; run("configs/etl_config.yaml", layers=["mylayer"])`.
 
 ---
 
-  
+## Contributing
 
-This documentation provides a comprehensive guide to understanding and working with the BOLTDBT PIPELINER ETL pipeline. The system is designed to be extensible and maintainable, allowing you to add new data sources and transformations while maintaining consistency and reliability.
+```bash
+pip install -e ".[dev]"
+ruff check src/ tests/
+mypy src/bolt_pipeliner
+pytest -q
+```
+
+Pull requests should:
+- Keep changes minimal and scoped.
+- Add tests for any new behavior (the suite covers config loading, runner resolution, generators, the CLI, and all data-quality checks across Pandas + Polars).
+- Avoid breaking the lazy-import invariant — importing `bolt_pipeliner` must not pull in PySpark / Polars / Pandas at module load time. The `tests/test_package_imports_lazily.py` suite enforces this.

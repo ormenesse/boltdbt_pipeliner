@@ -1,0 +1,103 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bolt_pipeliner"
+description = "Config-driven ETL framework for Spark, Pandas, and Polars."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Vinicius Ormenesse" }]
+keywords = ["etl", "spark", "iceberg", "data-engineering", "airflow", "polars", "pandas", "dbt"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Database",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+dependencies = [
+    "PyYAML>=6.0,<7",
+    "typer>=0.12,<1",
+    "questionary>=2.0,<3",
+]
+
+[project.optional-dependencies]
+pandas = [
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "numpy>=2.0",
+]
+polars = [
+    "polars>=1.0",
+    "pyarrow>=14.0",
+]
+spark = [
+    "databricks-connect>=15.3,<16",
+]
+aws = [
+    "boto3>=1.35,<2",
+    "fsspec>=2023.10",
+]
+excel = [
+    "xlrd>=2.0",
+]
+notebook = [
+    "nbformat>=5.10",
+]
+http = [
+    "Requests>=2.32",
+]
+all = [
+    "bolt_pipeliner[pandas,polars,spark,aws,excel,notebook,http]",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "build>=1.2",
+    "twine>=5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ormenesse/boltdbt_pipeliner"
+Repository = "https://github.com/ormenesse/boltdbt_pipeliner"
+Issues = "https://github.com/ormenesse/boltdbt_pipeliner/issues"
+Changelog = "https://github.com/ormenesse/boltdbt_pipeliner/blob/main/CHANGELOG.md"
+
+[project.scripts]
+bolt = "bolt_pipeliner.cli.app:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"bolt_pipeliner" = ["templates/**/*", "py.typed"]
+
+[tool.setuptools.dynamic]
+version = { attr = "bolt_pipeliner.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/bolt_pipeliner"]
+ignore_missing_imports = true
