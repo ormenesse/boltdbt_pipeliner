@@ -1,0 +1,2 @@
+[console_scripts]
+bolt = bolt_pipeliner.cli.app:main
