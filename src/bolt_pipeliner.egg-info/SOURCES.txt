@@ -2,7 +2,9 @@ LICENSE
 README.md
 pyproject.toml
 src/bolt_pipeliner/__init__.py
+src/bolt_pipeliner/py.typed
 src/bolt_pipeliner/runner.py
+src/bolt_pipeliner/selection.py
 src/bolt_pipeliner.egg-info/PKG-INFO
 src/bolt_pipeliner.egg-info/SOURCES.txt
 src/bolt_pipeliner.egg-info/dependency_links.txt
@@ -15,6 +17,7 @@ src/bolt_pipeliner/bases/polars_parquet.py
 src/bolt_pipeliner/bases/spark_delta.py
 src/bolt_pipeliner/bases/spark_iceberg.py
 src/bolt_pipeliner/bases/spark_parquet.py
+src/bolt_pipeliner/cli/__init__.py
 src/bolt_pipeliner/cli/app.py
 src/bolt_pipeliner/cli/generate.py
 src/bolt_pipeliner/cli/init.py
@@ -46,8 +49,10 @@ src/bolt_pipeliner/testing/__init__.py
 src/bolt_pipeliner/testing/checks.py
 src/bolt_pipeliner/testing/runner.py
 tests/test_cli_init.py
+tests/test_cli_run.py
 tests/test_config_loader.py
 tests/test_data_checks.py
 tests/test_generators_paths.py
 tests/test_package_imports_lazily.py
 tests/test_runner.py
+tests/test_selection.py

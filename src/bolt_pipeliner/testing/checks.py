@@ -78,6 +78,8 @@ def _columns(df: Any) -> list[str]:
 def not_null(df: Any, columns: list[str]) -> TestResult:
     """Every value in `columns` is non-null."""
     name = f"not_null({columns})"
+    if not columns:
+        return TestResult(name, False, "Empty `columns` list")
     missing_cols = [c for c in columns if c not in _columns(df)]
     if missing_cols:
         return TestResult(name, False, f"Missing column(s): {missing_cols}")
@@ -86,18 +88,16 @@ def not_null(df: Any, columns: list[str]) -> TestResult:
     if _is_spark(df):
         from pyspark.sql import functions as F
 
-        cond = None
-        for c in columns:
-            term = F.col(c).isNull()
-            cond = term if cond is None else cond | term
+        cond = F.col(columns[0]).isNull()
+        for c in columns[1:]:
+            cond = cond | F.col(c).isNull()
         failing = df.filter(cond).count()
     elif _is_polars(df):
         import polars as pl
 
-        expr = None
-        for c in columns:
-            term = pl.col(c).is_null()
-            expr = term if expr is None else expr | term
+        expr = pl.col(columns[0]).is_null()
+        for c in columns[1:]:
+            expr = expr | pl.col(c).is_null()
         failing = df.filter(expr).height
     elif _is_pandas(df):
         mask = df[columns].isna().any(axis=1)

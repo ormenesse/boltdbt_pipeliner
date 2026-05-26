@@ -20,18 +20,21 @@ The framework is inspired by dbt's `tests:` ergonomics but stays Python-first: j
 
 1. [Installation](#installation)
 2. [Quick start — `bolt init`](#quick-start--bolt-init)
-3. [CLI reference](#cli-reference)
-4. [Config schema (`etl_config.yaml`)](#config-schema-etl_configyaml)
-5. [Base classes (engine selection)](#base-classes-engine-selection)
-6. [Writing an ETL job](#writing-an-etl-job)
-7. [Incremental processing](#incremental-processing)
-8. [Data-quality tests (`bolt test`)](#data-quality-tests-bolt-test)
-9. [Code generation (`bolt generate`)](#code-generation-bolt-generate)
-10. [Spark session profiles](#spark-session-profiles)
-11. [Macros (reusable transforms)](#macros-reusable-transforms)
-12. [Documentation flow without Spark](#documentation-flow-without-spark)
-13. [Project layout](#project-layout)
-14. [Troubleshooting](#troubleshooting)
+3. [Self-contained projects (vendored copy + shims)](#self-contained-projects-vendored-copy--shims)
+4. [CLI reference](#cli-reference)
+   - [Selecting jobs to run](#selecting-jobs-to-run)
+5. [Config schema (`etl_config.yaml`)](#config-schema-etl_configyaml)
+6. [Base classes (engine selection)](#base-classes-engine-selection)
+7. [Writing an ETL job](#writing-an-etl-job)
+8. [Incremental processing](#incremental-processing)
+9. [Data-quality tests (`bolt test`)](#data-quality-tests-bolt-test)
+10. [Code generation (`bolt generate`)](#code-generation-bolt-generate)
+11. [Spark session profiles](#spark-session-profiles)
+12. [Macros (reusable transforms)](#macros-reusable-transforms)
+13. [ML training (`models/` + `model_notebooks/`)](#ml-training-models--model_notebooks)
+14. [Documentation flow without Spark](#documentation-flow-without-spark)
+15. [Project layout](#project-layout)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -69,7 +72,7 @@ The wizard asks:
 | Engine | pyspark • pandas • polars |
 | Spark profile (pyspark only) | local • databricks • emr • glue • gcp • azure • k8s |
 | Execution env | terminal • notebook • airflow • databricks-jobs |
-| ML training layer | yes / no |
+| ML training layer | yes / no (when yes, also offers to add a `diamond` layer if missing) |
 
 Skip the prompts with a preset:
 
@@ -79,6 +82,8 @@ bolt init my_project --preset medallion    # pyspark/local, bronze/silver/gold
 bolt init my_project --preset diamond      # full medallion + diamond + ML, airflow
 bolt init my_project --preset pandas       # pandas medallion, notebook
 bolt init my_project --preset polars       # polars medallion, notebook
+
+bolt init my_project --preset medallion --no-vendor   # skip the vendored copy
 ```
 
 The scaffolder writes:
@@ -87,39 +92,109 @@ The scaffolder writes:
 my_project/
 ├── configs/
 │   ├── etl_config.yaml
-│   └── spark/<profile>.toml          # only when engine=pyspark
+│   ├── style_config.yaml                   # colors for `bolt generate documentation`
+│   └── spark/<profile>.toml                # only when engine=pyspark
 ├── etl/
 │   ├── _flatfile/flatfile_example.py
 │   ├── 0_bronze/bronze_example.py
 │   ├── 1_silver/silver_example.py
-│   └── 2_gold/gold_example.py
+│   ├── 2_gold/gold_example.py
+│   └── 3_diamond/diamond_example.py        # only on diamond architecture / ML
 ├── macros/__init__.py
-├── models/train_example.py            # only when ML is enabled
+├── models/train_example.py                 # only when ML is enabled
+├── model_notebooks/                        # only when ML is enabled
+│   ├── README.md
+│   └── train_example.ipynb
 ├── tests/test_smoke.py
+├── _boltpipeliner/                         # vendored copy of bolt_pipeliner
+│   ├── README.md
+│   └── bolt_pipeliner/...
+├── bolt.py                                 # `python bolt.py <subcommand>`
+├── main.py                                 # `python main.py [--bronze ...]`
+├── generate.py                             # `python generate.py <target>`
 └── README.md
 ```
 
 It refuses to write into a non-empty directory.
+
+`configs/style_config.yaml` is **always** scaffolded (it's required by `bolt generate documentation`) and is pre-populated with a color palette matching whichever layers you picked.
+
+---
+
+## Self-contained projects (vendored copy + shims)
+
+`bolt init` vendors a full copy of `bolt_pipeliner` into `<project>/_boltpipeliner/` and emits three shim scripts at the project root:
+
+| Shim | Equivalent to | Use it when |
+|---|---|---|
+| `python bolt.py …` | `bolt …` | You want the full CLI surface (`run`, `generate`, `test`, `init`). |
+| `python main.py …` | `bolt run …` | Quick layer runs: `python main.py --bronze --silver`. |
+| `python generate.py …` | `bolt generate …` | Regenerate artifacts: `python generate.py documentation`. |
+
+Each shim prepends `_boltpipeliner/` to `sys.path` before importing `bolt_pipeliner`, so **the vendored copy wins over any pip-installed version**. That means:
+
+- The project runs end-to-end on a fresh clone — no `pip install bolt_pipeliner` required.
+- The version of the framework that ships with the repo is the version that runs, so a checkout from six months ago still produces the same artifacts.
+- Downstream consumers (CI, Airflow workers, Docker images) only need `pip install -r requirements.txt` for engine deps (PySpark / Pandas / Polars) plus YAML/Typer, not the framework itself.
+
+If you'd rather rely on a pip-installed copy, pass `--no-vendor`:
+
+```bash
+bolt init my_project --preset medallion --no-vendor
+```
+
+The shims are still emitted; they fall back to the installed package when `_boltpipeliner/` is absent.
+
+**Refreshing the vendored copy.** Re-run `bolt init` in a fresh directory, or copy the new `src/bolt_pipeliner/` tree over `_boltpipeliner/bolt_pipeliner/` after upgrading. Don't hand-edit files under `_boltpipeliner/bolt_pipeliner/` — patch the upstream package instead.
 
 ---
 
 ## CLI reference
 
 ```
-bolt init      PROJECT_NAME [--path PATH] [--preset NAME]
+bolt init      PROJECT_NAME [--path PATH] [--preset NAME] [--vendor/--no-vendor]
 bolt run       [--config PATH] [--flatfile|--bronze|--silver|--gold|--diamond]
+                              [--select SEL] [--layer L]
 bolt test      [--config PATH] [--layer L] [--module M]
 bolt generate  {airflow|documentation|layers|notebook|snowflakeddl|all} [--config PATH]
 ```
 
 | Command | What it does |
 |---|---|
-| `bolt init` | Interactive project scaffolder (above). |
-| `bolt run` | Walks the layers declared in `configs/etl_config.yaml` and executes every job in dependency order. Pick a subset with the layer flags. |
+| `bolt init` | Interactive project scaffolder (above). `--no-vendor` skips the vendored copy. |
+| `bolt run` | Walks the layers declared in `configs/etl_config.yaml` and executes every job in dependency order. Pick a subset with `--bronze` / `--silver` / …, or with `--select` / `-s` for dbt-style table-level selection (see [Selecting jobs to run](#selecting-jobs-to-run)). |
 | `bolt test` | Runs the `tests:` block on each job. Exits non-zero on failure. |
 | `bolt generate` | Regenerates Airflow DAGs, HTML docs, standalone layer scripts, the notebook, and Snowflake DDLs from the config. Use `all` to run all of them. |
 
-`bolt --help` and `bolt <subcommand> --help` print the full option set.
+`bolt --help` and `bolt <subcommand> --help` print the full option set. Inside a scaffolded project you can substitute `python bolt.py …` / `python main.py …` / `python generate.py …` (see [Self-contained projects](#self-contained-projects-vendored-copy--shims)).
+
+### Selecting jobs to run
+
+`bolt run --select <selector>` (or `-s`) targets specific tables — and, dbt-style, their upstream/downstream neighbourhood:
+
+| Selector | Meaning |
+|---|---|
+| `silver_orders`  | just that one job |
+| `+silver_orders` | upstream-of-`silver_orders` **+** `silver_orders` |
+| `silver_orders+` | `silver_orders` **+** downstream-of-`silver_orders` |
+| `+silver_orders+` | upstream **+** `silver_orders` **+** downstream |
+
+A selector accepts either the full `{layer}_{output_table_name}` form (`silver_orders`) or a bare `output_table_name` (`orders`) when only one layer exposes it. When the same `output_table_name` lives in multiple layers, pass `--layer / -l` to disambiguate:
+
+```bash
+bolt run -s +silver_x          # rebuild silver_x and everything it depends on
+bolt run -s bronze_a+          # rebuild bronze_a and every silver/gold that consumes it
+bolt run -s +silver_x+         # full rebuild around silver_x
+bolt run -s orders -l silver   # bare name + layer constraint
+```
+
+`--select` is mutually exclusive with `--bronze` / `--silver` / `--gold` / `--diamond` / `--flatfile`. Use `--layer` *alongside* `--select` to disambiguate bare names, or **standalone** as a synonym for `--<layer>`:
+
+```bash
+bolt run -l silver             # equivalent to `bolt run --silver`
+```
+
+Selection respects YAML layer order: flatfile → bronze → silver → gold → diamond. Within each layer, jobs run in the order they appear in `etl_config.yaml`. External references (flatfile paths, shared-catalog reads like `raw.crm_account`) are skipped from the dependency graph — they're not jobs this project schedules.
 
 ---
 
@@ -393,15 +468,65 @@ The framework deliberately does not ship a macro DSL or registry. Use plain impo
 
 ---
 
+## ML training (`models/` + `model_notebooks/`)
+
+When you answer **yes** to the "Include an ML training layer?" prompt (or use `--preset diamond`), `bolt init` scaffolds two ML-related directories side-by-side:
+
+| Directory | Role |
+|---|---|
+| `models/` | Production training/loading code. `train_example.py` exposes `train(features)` and `load_latest(stage)` stubs with MLflow patterns baked in (commented out by default). |
+| `model_notebooks/` | Experimentation surface. `train_example.ipynb` is a minimal engine-aware notebook covering: pull features from gold → train → log to MLflow → register → load latest. |
+
+**Diamond-layer convention.** ML jobs are conventionally placed in the `diamond` layer (downstream of `gold`). It's the natural home for training jobs that consume curated features and emit prediction tables or registered model versions. If you enable ML but pick a non-diamond architecture, the wizard offers to add a `diamond` layer automatically.
+
+### MLflow (recommended, not required)
+
+The generated `train_example.py` and `train_example.ipynb` reference [MLflow](https://mlflow.org) for experiment tracking and a model registry, but **the imports are commented out** — MLflow is a *suggestion*, not a hard dependency. Wire it in when you need it:
+
+```bash
+pip install mlflow
+export MLFLOW_TRACKING_URI=sqlite:///mlflow.db        # local quickstart
+# or point at your team's tracking server:
+# export MLFLOW_TRACKING_URI=https://mlflow.your-org.example.com
+mlflow ui                                              # http://localhost:5000
+```
+
+Inside a notebook or job:
+
+```python
+import mlflow, mlflow.sklearn
+
+with mlflow.start_run():
+    mlflow.log_param("engine", "pandas")
+    mlflow.log_metric("auc", 0.87)
+    mlflow.sklearn.log_model(
+        model,
+        artifact_path="model",
+        registered_model_name="example_model",
+    )
+```
+
+Then load the latest registered version from a diamond-layer ETL job:
+
+```python
+model = mlflow.pyfunc.load_model("models:/example_model/Production")
+```
+
+**Without MLflow.** If you don't want the dep, pickle models to S3/GCS/disk under a versioned path and load by hash. The `load_latest()` stub in `models/train_example.py` is the right place to wire that in.
+
+See `model_notebooks/README.md` in any scaffolded project for the full quickstart.
+
+---
+
 ## Documentation flow without Spark
 
-`bolt generate documentation` always emits a Spark-free schema-extraction script alongside the HTML so notebook-only developers can produce schemas without a local Spark install:
+`bolt generate documentation` (or `python generate.py documentation` inside a scaffolded project) always emits a Spark-free schema-extraction script alongside the HTML so notebook-only developers can produce schemas without a local Spark install:
 
-1. `bolt generate documentation`
+1. `python generate.py documentation`
    → writes `outputs/schema/schema.py` and the HTML (falling back to whatever `schema.csv` exists, or empty if none).
 2. Copy `schema.py` into the environment that has Spark (Databricks notebook, EMR shell, …) and run it. It prints a CSV.
 3. Save that CSV to `outputs/schema/schema.csv`.
-4. Re-run `bolt generate documentation` — the HTML now picks up the real column definitions, and `bolt generate snowflakeddl` can derive Snowflake DDLs from the same CSV.
+4. Re-run `python generate.py documentation` — the HTML now picks up the real column definitions, and `python generate.py snowflakeddl` can derive Snowflake DDLs from the same CSV.
 
 ---
 
@@ -417,10 +542,16 @@ my_project/
 │   ├── _flatfile/                # raw ingestion
 │   ├── 0_bronze/                 # cleaned raw
 │   ├── 1_silver/                 # business logic
-│   └── 2_gold/                   # domain-specific facts / marts
+│   ├── 2_gold/                   # domain-specific facts / marts
+│   └── 3_diamond/                # optional — conventional home for ML jobs
 ├── macros/                       # reusable Python transforms
-├── models/                       # optional ML training jobs
+├── models/                       # optional ML training jobs (MLflow-friendly)
+├── model_notebooks/              # optional ML experimentation surface
 ├── tests/                        # pytest unit tests (project-specific)
+├── _boltpipeliner/               # vendored copy of bolt_pipeliner (omit with --no-vendor)
+├── bolt.py                       # `python bolt.py <subcommand>` — full CLI shim
+├── main.py                       # `python main.py [--bronze ...]` — `bolt run` shim
+├── generate.py                   # `python generate.py <target>` — `bolt generate` shim
 └── outputs/                      # generated; gitignored
     ├── airflow/{dags,code}/
     ├── documentation/
@@ -449,8 +580,6 @@ And sample projects live under `examples/`:
 ```
 examples/
 ├── demo/        # runnable PySpark + Iceberg medallion (used in this repo's CI)
-├── entergy/    # large production-scale snapshot — read-only reference
-└── peco/       # multi-engine reference (PySpark + Pandas + Polars on Parquet)
 ```
 
 See [`examples/README.md`](./examples/README.md) for a guided tour.

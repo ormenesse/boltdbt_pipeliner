@@ -3,9 +3,10 @@ from __future__ import annotations
 import importlib
 import types
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from bolt_pipeliner.config import load_config
+from bolt_pipeliner.selection import select as select_jobs
 
 _BUILTIN_BASE_MODULES: dict[str, str] = {
     "ETLBase": "bolt_pipeliner.bases.spark_iceberg",
@@ -38,14 +39,36 @@ def _module_import_path(layer_dir: str, module_name: str) -> str:
     return ".".join(parts + [module_name])
 
 
-def run(config_path: str | Path, layers: Iterable[str] | None = None, spark=None) -> None:
-    """Run ETL jobs for the requested layers in the order declared in the config.
+def run(
+    config_path: str | Path,
+    layers: Iterable[str] | None = None,
+    select: str | None = None,
+    layer: str | None = None,
+    spark=None,
+) -> None:
+    """Run ETL jobs for the requested selection in declared order.
 
     Args:
-        config_path: path to etl_config.yaml
-        layers: subset of layer names to run; defaults to every layer in `layers:`
-        spark: optional SparkSession; if None, the local session is created lazily.
+        config_path: path to etl_config.yaml.
+        layers: subset of layer names to run. Mutually exclusive with
+            ``select``. Defaults to every layer in ``layers:``.
+        select: dbt-style selector — ``name``, ``+name`` (upstream),
+            ``name+`` (downstream), or ``+name+`` (both). ``name`` is
+            either ``{layer}_{output_table_name}`` or a bare
+            ``output_table_name``.
+        layer: when given alongside ``select``, constrains bare-name
+            resolution to this layer (use it to disambiguate when the
+            same output_table_name appears in multiple layers). When
+            given without ``select``, acts like ``layers=[layer]``.
+        spark: optional SparkSession; if None, the local session is
+            created lazily.
     """
+    if select is not None and layers:
+        raise ValueError(
+            "`select` is mutually exclusive with `layers`. "
+            "Pass one or the other, not both."
+        )
+
     config = load_config(config_path)
     configs_section = config.get("configs", {})
     flatfile_bucket = configs_section.get("flatfile_bucket", "")
@@ -55,42 +78,59 @@ def run(config_path: str | Path, layers: Iterable[str] | None = None, spark=None
     incremental_column = configs_section.get("incremental_column")
     layer_paths: dict[str, str] = config.get("layers", {}) or {}
 
-    requested = list(layers) if layers else list(layer_paths.keys())
+    plan: list[tuple[str, dict[str, Any]]]
+    if select is not None:
+        plan = select_jobs(config, select, layer=layer)
+        if not plan:
+            print(f"[bolt] selector {select!r} resolved to zero jobs.")
+            return
+    else:
+        # Legacy path: layer-filtered (or full) run.
+        if layer is not None and not layers:
+            layers = [layer]
+        requested = list(layers) if layers else list(layer_paths.keys())
+        plan = []
+        for stage in requested:
+            if stage not in layer_paths:
+                print(f"[bolt] skipping unknown layer '{stage}'")
+                continue
+            for job in config.get(stage, []) or []:
+                if isinstance(job, dict):
+                    plan.append((stage, job))
 
     if spark is None:
         from bolt_pipeliner.sessions import create_session
 
         spark = create_session("local")
 
-    for stage in requested:
+    for stage, job in plan:
         layer_dir = layer_paths.get(stage)
         if layer_dir is None:
-            print(f"[bolt] skipping unknown layer '{stage}'")
+            print(f"[bolt] skipping job in unknown layer '{stage}'")
             continue
 
-        for job in config.get(stage, []) or []:
-            module_path = _module_import_path(layer_dir, job["module"])
-            module = importlib.import_module(module_path)
+        module_path = _module_import_path(layer_dir, job["module"])
+        module = importlib.import_module(module_path)
 
-            base_cls = _resolve_base_class(job.get("class_name", "ETLBase"))
-            bucket = flatfile_bucket if stage == "flatfile" else output_bucket
+        base_cls = _resolve_base_class(job.get("class_name", "ETLBase"))
+        bucket = flatfile_bucket if stage == "flatfile" else output_bucket
 
-            etl = base_cls(
-                spark=spark,
-                layer=stage,
-                bucket=bucket,
-                input_tables=job["input_tables"],
-                output_table_name=job["output_table_name"],
-                partition_by=job.get("partition_by", []),
-                unload=job.get("unload", True),
-                incremental=job.get("incremental", False),
-                catalog="shared_catalog",
-                save_catalog=save_catalog,
-                fixed_schema=fixed_schema,
-                incremental_column=incremental_column,
-            )
-            etl.process_data = types.MethodType(module.process_data, etl)
-            etl.run()
+        etl = base_cls(
+            spark=spark,
+            layer=stage,
+            bucket=bucket,
+            input_tables=job["input_tables"],
+            output_table_name=job["output_table_name"],
+            partition_by=job.get("partition_by", []),
+            unload=job.get("unload", True),
+            incremental=job.get("incremental", False),
+            catalog="shared_catalog",
+            save_catalog=save_catalog,
+            fixed_schema=fixed_schema,
+            incremental_column=incremental_column,
+        )
+        etl.process_data = types.MethodType(module.process_data, etl)
+        etl.run()
 
 
 __all__ = ["run"]

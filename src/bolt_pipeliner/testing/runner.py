@@ -15,12 +15,12 @@ The YAML schema mirrors dbt's tests block:
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from bolt_pipeliner.testing import checks as _checks
 from bolt_pipeliner.testing.checks import TestResult
 
-_CHECK_REGISTRY = {
+_CHECK_REGISTRY: dict[str, Callable[..., TestResult]] = {
     "not_null": _checks.not_null,
     "unique": _checks.unique,
     "row_count": _checks.row_count,

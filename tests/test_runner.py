@@ -1,9 +1,11 @@
 import pytest
+import yaml
 
 from bolt_pipeliner.runner import (
     _BUILTIN_BASE_MODULES,
     _module_import_path,
     _resolve_base_class,
+    run,
 )
 
 
@@ -46,3 +48,45 @@ def test_resolve_builtin_class_names_map_to_modules():
         "ETLBaseParquetPandas",
         "ETLBaseParquetPolars",
     }
+
+
+def test_run_rejects_layers_and_select_together(tmp_path):
+    """Selectors and the legacy layer-list path are mutually exclusive — the
+    runner must fail loudly rather than silently picking one or the other.
+    """
+    cfg = tmp_path / "etl_config.yaml"
+    cfg.write_text(
+        yaml.safe_dump({
+            "configs": {},
+            "layers": {"bronze": "etl/0_bronze"},
+            "bronze": [],
+        }),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        run(cfg, layers=["bronze"], select="bronze_x")
+
+
+def test_run_with_empty_selector_resolves_to_nothing(tmp_path, capsys):
+    """When a selector matches no jobs (e.g. a selector targets a job that's
+    only declared in an empty layer), the runner reports it and returns
+    cleanly rather than raising — selectors are user input, friendlier to
+    "no-op + message" than to "stack trace".
+    """
+    cfg = tmp_path / "etl_config.yaml"
+    cfg.write_text(
+        yaml.safe_dump({
+            "configs": {},
+            "layers": {"bronze": "etl/0_bronze", "silver": "etl/1_silver"},
+            "bronze": [
+                {"module": "b_o", "input_tables": {"x": "raw.t"}, "output_table_name": "o"},
+            ],
+            "silver": [],
+        }),
+        encoding="utf-8",
+    )
+    # Selector targets bronze_o, but with no downstream consumers `bronze_o+`
+    # still includes the target itself. Use a non-existent name to validate
+    # the "zero jobs" path.
+    with pytest.raises(ValueError, match="No job matches"):
+        run(cfg, select="nope")

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import importlib
-import sys
 import types
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 from bolt_pipeliner.config import load_config
 from bolt_pipeliner.runner import _module_import_path, _resolve_base_class

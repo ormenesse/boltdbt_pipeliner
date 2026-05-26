@@ -21,7 +21,11 @@ jobs:
       - name: Install build tooling
         run: |
           python -m pip install --upgrade pip
-          pip install build twine
+          # Pin packaging >=24.2 — earlier versions don't recognise PEP 639
+          # `License-Expression` / `License-File` metadata, which setuptools
+          # >=77 now writes by default. Without this `twine check --strict`
+          # rejects an otherwise-valid wheel.
+          pip install "build>=1.2" "twine>=6.2" "packaging>=24.2"
 
       - name: Clean stale build artifacts
         run: rm -rf dist build src/*.egg-info

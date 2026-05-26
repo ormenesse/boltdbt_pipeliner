@@ -1,8 +1,11 @@
-import re
+import logging
 import os
+import re
 import yaml
 import pandas as pd
 from typing import Dict, Iterable, Optional, Any
+
+logger = logging.getLogger(__name__)
 
 # Constants
 DEFAULT_CONFIG_PATH = "./configs/etl_config.yaml"

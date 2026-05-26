@@ -33,8 +33,29 @@ def run(
     silver: bool = typer.Option(False, "--silver", help="Run only silver jobs"),
     gold: bool = typer.Option(False, "--gold", help="Run only gold jobs"),
     diamond: bool = typer.Option(False, "--diamond", help="Run only diamond jobs"),
+    select: Optional[str] = typer.Option(
+        None,
+        "--select",
+        "-s",
+        help=(
+            "dbt-style selector. Examples: 'silver_orders', '+silver_orders' "
+            "(upstream + target), 'silver_orders+' (target + downstream), "
+            "'+silver_orders+' (both). Bare 'orders' works when unambiguous; "
+            "use -l to disambiguate."
+        ),
+    ),
+    layer: Optional[str] = typer.Option(
+        None,
+        "--layer",
+        "-l",
+        help=(
+            "Restrict execution (or selector resolution) to a single layer. "
+            "Standalone: equivalent to --<layer>. With --select: disambiguates "
+            "bare table names like 'orders' to '<layer>_orders'."
+        ),
+    ),
 ) -> None:
-    """Run ETL jobs across the requested layers."""
+    """Run ETL jobs across the requested layers / selection."""
     layer_flags = {
         "flatfile": flatfile,
         "bronze": bronze,
@@ -42,8 +63,17 @@ def run(
         "gold": gold,
         "diamond": diamond,
     }
-    selected = [name for name, enabled in layer_flags.items() if enabled] or None
-    run_cmd.execute(config, selected)
+    selected_layers = [name for name, enabled in layer_flags.items() if enabled] or None
+
+    if select is not None and selected_layers is not None:
+        typer.echo(
+            "Error: --select is mutually exclusive with --bronze/--silver/--gold/"
+            "--diamond/--flatfile. Use --layer to constrain a selector instead.",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    run_cmd.execute(config, selected_layers, select=select, layer=layer)
 
 
 @app.command()
@@ -91,9 +121,17 @@ def init(
         "--preset",
         help="Skip interactive prompts. One of: minimal, medallion, diamond, pandas, polars",
     ),
+    vendor: bool = typer.Option(
+        True,
+        "--vendor/--no-vendor",
+        help=(
+            "Bundle a copy of bolt_pipeliner under _vendor/ so the project runs "
+            "without `pip install bolt_pipeliner`. Pass --no-vendor to skip."
+        ),
+    ),
 ) -> None:
     """Scaffold a new bolt_pipeliner project (interactive or via --preset)."""
-    init_cmd.execute(project_name, target_dir=path, preset=preset)
+    init_cmd.execute(project_name, target_dir=path, preset=preset, vendor=vendor)
 
 
 def main() -> None:
