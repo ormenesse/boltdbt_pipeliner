@@ -231,8 +231,8 @@ def generate_dag_script(layer: str, completed_jobs: List[str],
     # # Wait for previous layer to complete
     # wait_for_{previous_layer} = ExternalTaskSensor(
     #     task_id="wait_for_{previous_layer}",
-    #     external_dag_id="etrdatamart_{previous_layer}",
-    #     external_task_id="TG_etrdatamart_{previous_layer}",
+    #     external_dag_id="boltpipe_{previous_layer}",
+    #     external_task_id="TG_boltpipe_{previous_layer}",
     #     timeout=3600*12,  # 12 hour timeout
     #     poke_interval=60,  # Check every minute
     #     mode="reschedule",
@@ -241,9 +241,9 @@ def generate_dag_script(layer: str, completed_jobs: List[str],
         dependency_sensor_code = f"""
     # Wait for previous layer to complete
     wait_for_{previous_layer} = TriggerDagRunOperator(
-    task_id="TG_etrdatamart_{previous_layer}",
-    trigger_dag_id="etrdatamart_{previous_layer}",
-    conf={{"triggered_by": "etrdatamart_{layer}"}},
+    task_id="TG_boltpipe_{previous_layer}",
+    trigger_dag_id="boltpipe_{previous_layer}",
+    conf={{"triggered_by": "boltpipe_{layer}"}},
     wait_for_completion=True,  # wait for it to finish (set False if you don't want to wait)
     )"""
     if layer == list(layer_order)[-1]:
@@ -254,7 +254,7 @@ def generate_dag_script(layer: str, completed_jobs: List[str],
     output_file = f"./outputs/airflow/dags/datamart_{layer}.py"
     with open(output_file, 'w', encoding="utf-8") as f:
         f.write(dag_template.format(
-            dag_name=f'etrdatamart_{layer}',
+            dag_name=f'boltpipe_{layer}',
             emr_configuration_code=emr_configuration_code,
             tasks_order=tasks_order,
             dependency_sensor_code=dependency_sensor_code,

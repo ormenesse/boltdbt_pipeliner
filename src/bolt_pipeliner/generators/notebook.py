@@ -14,44 +14,6 @@ def load_yaml_config(path):
         return yaml.safe_load(f)
 
 
-def create_spark_config_cell():
-    """Create the Spark configuration cell with proper formatting."""
-    spark_config = {
-        "driverMemory": "27G",
-        "executorMemory": "27G", 
-        "executorCores": 4,
-        "driverCores": 4,
-        "conf": {
-            "spark.dynamicAllocation.enabled": "true",
-            "spark.dynamicAllocation.shuffleTracking.enabled": "true",
-            "spark.dynamicAllocation.minExecutors": 1,
-            "spark.dynamicAllocation.maxExecutors": 20,
-            "spark.dynamicAllocation.initialExecutors": 2,
-            "spark.sql.shuffle.partitions": 1000,
-            "spark.sql.adaptive.shuffle.partitions": "true",
-            "spark.kubernetes.executor.label.pod_name": "utility",
-            "spark.kubernetes.driver.label.pod_name": "utility",
-            "spark.kubernetes.executor.label.product": "nps-sensitivy",
-            "spark.kubernetes.driver.label.product": "nps-sensitivy",
-            "spark.kubernetes.executor.label.developer": "vormene",
-            "spark.kubernetes.driver.label.developer": "vormene",
-            "spark.kubernetes.exector.label.domain": "emrnotebook",
-            "spark.kubernetes.driver.label.domain": "emrnotebook",
-            "spark.hadoop.fs.s3a.fast.upload.buffer": "bytebuffer",
-            "spark.hadoop.fs.s3a.fast.upload": "true",
-            "spark.serializer": "org.apache.spark.serializer.KryoSerializer",
-            "spark.sql.adaptive.enabled": "true",
-            "spark.local.dir": "/tmp/spark-temp",
-            "spark.hadoop.fs.s3a.committer.name": "directory",
-            "spark.hadoop.fs.s3a.committer.staging.tmp.path": "/tmp/spark-s3a-staging",
-            "spark.hadoop.fs.s3a.multiobjectdelete.enable": "false"
-        }
-    }
-    
-    config_str = f"%%configure -f\n{spark_config}"
-    return new_code_cell(config_str)
-
-
 def add_initial_cells(notebook, config):
     """Add initial setup cells to the notebook."""
     # CSS styling cell
@@ -64,7 +26,7 @@ div.jp-OutputArea-output pre {
     notebook.cells.append(new_code_cell(css_style))
     
     # Spark configuration
-    notebook.cells.append(create_spark_config_cell())
+    # TODO
     
     # Spark session setup
     with open(str(PACKAGE_ROOT / "sessions" / "local.py"), "r", encoding="utf-8") as f:

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: bolt_pipeliner
-Version: 0.2.0
+Version: 0.2.1
 Summary: Config-driven ETL framework for Spark, Pandas, and Polars.
 Author: Vinicius Ormenesse
 License-Expression: Apache-2.0
@@ -641,8 +641,6 @@ And sample projects live under `examples/`:
 ```
 examples/
 ├── demo/        # runnable PySpark + Iceberg medallion (used in this repo's CI)
-├── entergy/    # large production-scale snapshot — read-only reference
-└── peco/       # multi-engine reference (PySpark + Pandas + Polars on Parquet)
 ```
 
 See [`examples/README.md`](./examples/README.md) for a guided tour.

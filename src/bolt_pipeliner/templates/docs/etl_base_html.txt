@@ -69,10 +69,10 @@
           <tr><th>Description</th><td>Base ETL class for Spark + Iceberg (AWS Glue). It defines read/write conventions, the incremental window, and the standard orchestration via <span class="kv">run()</span>.</td></tr>
           <tr><th>Module</th><td>etl_base</td></tr>
           <tr><th>Module Path</th><td><pre>./etl/etl_base.py</pre></td></tr>
-          <tr><th>FIXED_SCHEMA</th><td><code class="kv">etrdatamart</code></td></tr>
+          <tr><th>FIXED_SCHEMA</th><td><code class="kv">boltpipe</code></td></tr>
           <tr><th>Read Catalog (bronze)</th><td><code class="kv">shared_catalog</code></td></tr>
           <tr><th>Write Catalog (save_catalog)</th><td><code class="kv">dev_catalog</code></td></tr>
-          <tr><th>Iceberg Identifier</th><td><span class="kv">&lt;save_catalog&gt;.etrdatamart.&lt;layer&gt;_&lt;output_table_name&gt;</span></td></tr>
+          <tr><th>Iceberg Identifier</th><td><span class="kv">&lt;save_catalog&gt;.boltpipe.&lt;layer&gt;_&lt;output_table_name&gt;</span></td></tr>
           <tr><th>Key Parameters</th><td>
             <div class="kv">
               (spark, layer, bucket, input_tables, output_table_name, partition_by=None, unload=True, incremental=True, catalog="shared_catalog", save_catalog="dev_catalog", **kwargs)
@@ -100,9 +100,9 @@
           <tr><th>I/O Conventions</th><td>
             <ul>
               <li><span class="kv">flatfile</span>: CSV at <span class="kv">s3a://&lt;bucket&gt;/&lt;path&gt;</span></li>
-              <li><span class="kv">bronze</span>: <span class="kv">SELECT * FROM &lt;catalog&gt;.&lt;name&gt;</span> (when <span class="kv">name</span> contains a dot) or read via <span class="kv">save_catalog.etrdatamart.&lt;name&gt;</span></li>
-              <li><span class="kv">silver/gold</span> (else): <span class="kv">save_catalog.etrdatamart.&lt;name&gt;</span></li>
-              <li>Writes to: <span class="kv">&lt;save_catalog&gt;.etrdatamart.&lt;layer&gt;_&lt;output_table_name&gt;</span></li>
+              <li><span class="kv">bronze</span>: <span class="kv">SELECT * FROM &lt;catalog&gt;.&lt;name&gt;</span> (when <span class="kv">name</span> contains a dot) or read via <span class="kv">save_catalog.boltpipe.&lt;name&gt;</span></li>
+              <li><span class="kv">silver/gold</span> (else): <span class="kv">save_catalog.boltpipe.&lt;name&gt;</span></li>
+              <li>Writes to: <span class="kv">&lt;save_catalog&gt;.boltpipe.&lt;layer&gt;_&lt;output_table_name&gt;</span></li>
             </ul>
           </td></tr>
           <tr><th>Incremental</th><td>If <span class="kv">incremental=True</span> and the table exists, writes only partitions where <span class="kv">year_month</span> is within the last ~3 months.</td></tr>

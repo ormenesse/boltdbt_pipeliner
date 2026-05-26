@@ -2,7 +2,6 @@ LICENSE
 README.md
 pyproject.toml
 src/bolt_pipeliner/__init__.py
-src/bolt_pipeliner/py.typed
 src/bolt_pipeliner/runner.py
 src/bolt_pipeliner/selection.py
 src/bolt_pipeliner.egg-info/PKG-INFO
@@ -17,7 +16,6 @@ src/bolt_pipeliner/bases/polars_parquet.py
 src/bolt_pipeliner/bases/spark_delta.py
 src/bolt_pipeliner/bases/spark_iceberg.py
 src/bolt_pipeliner/bases/spark_parquet.py
-src/bolt_pipeliner/cli/__init__.py
 src/bolt_pipeliner/cli/app.py
 src/bolt_pipeliner/cli/generate.py
 src/bolt_pipeliner/cli/init.py
