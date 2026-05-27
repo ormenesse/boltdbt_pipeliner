@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.2.2] - 2026-05-27
+
+### Removed
+- Removed Snowflake DDL generation from `bolt generate`; `all` now regenerates Airflow DAGs, documentation, layer scripts, and notebooks.
+
 ## [0.2.0] - 2026-05-26
 
 ### FIXED
@@ -35,7 +42,8 @@ Notebook generation spark configuration.
 - The scaffolder's "Next steps" message now points at `python main.py --help` / `python generate.py documentation` when vendoring is enabled.
 - Added `Topic :: Scientific/Engineering :: Information Analysis` and `Intended Audience :: Information Technology` classifiers.
 
-[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.2
 [0.2.0]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.1.0
 

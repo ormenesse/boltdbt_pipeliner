@@ -5,6 +5,9 @@ Reference projects you can `cd` into to see `bolt_pipeliner` configured for real
 | Example | Engine(s) | Architecture | Notes |
 |---|---|---|---|
 | [`demo/`](./demo/) | PySpark + Iceberg | flatfile → bronze → silver → gold | The minimal, runnable repo demo. Four flatfile jobs ingest CSVs and one silver job builds a monthly fact table with `tests:` declared. |
+| [`demo_spark/`](./demo_spark/) | PySpark + local Parquet | flatfile → bronze → silver → gold → diamond | Real NYC Open Data collision CSVs joined on `collision_id`; the diamond layer trains a Spark ML injury-risk model. |
+| [`demo_pandas/`](./demo_pandas/) | Pandas + local Parquet | flatfile → bronze → silver → gold → diamond | Same NYC collision scenario translated to Pandas; the diamond layer trains a NumPy logistic model. |
+| [`demo_polars/`](./demo_polars/) | Polars + local Parquet | flatfile → bronze → silver → gold → diamond | Same NYC collision scenario translated to Polars; the diamond layer trains a NumPy logistic model from Polars features. |
 | [`entergy/`](./entergy/) | PySpark + Iceberg (Glue) | medallion (bronze/silver/domain) | Production-grade reference — 100+ jobs, full Airflow generation, HTML docs. Useful for seeing patterns at scale. |
 | [`peco/`](./peco/) | PySpark, Pandas, Polars (Parquet) | bronze/silver/gold | Multi-engine reference. Demonstrates how a single project can mix `ETLBaseParquet`, `ETLBaseParquetPandas`, and `ETLBaseParquetPolars` via per-job `class_name:`. |
 
@@ -20,7 +23,7 @@ bolt test --config configs/etl_config.yaml
 bolt generate documentation
 ```
 
-(Most examples reference S3 paths and require real credentials to actually execute the data loads. They're best read as *config + job-module patterns* you can copy into your own project.)
+(Some examples (for example `demo_spark/`, `demo_pandas/`, and `demo_polars/`) run fully local. Larger reference projects may reference S3 paths and require real credentials.)
 
 ## Starting fresh
 

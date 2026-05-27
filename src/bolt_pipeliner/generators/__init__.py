@@ -1,4 +1,4 @@
-"""Code generators for Airflow DAGs, documentation, layer scripts, notebooks, and Snowflake DDLs."""
+"""Code generators for Airflow DAGs, documentation, layer scripts, and notebooks."""
 
 from bolt_pipeliner.generators._paths import (
     ETL_BASE_SOURCE,

@@ -1,0 +1,105 @@
+configs:
+  output_bucket: outputs/tables
+  flatfile_bucket: data/raw
+  schema: demo_polars
+  incremental_column: year_month
+
+layers:
+  flatfile: etl/_flatfile
+  bronze: etl/0_bronze
+  silver: etl/1_silver
+  gold: etl/2_gold
+  diamond: etl/3_diamond
+
+flatfile:
+  - module: flatfile_crashes
+    description: Raw NYC collision crash records from NYC Open Data.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      crashes: crashes.csv
+    output_table_name: crashes_raw
+
+  - module: flatfile_vehicles
+    description: Raw vehicles involved in each NYC collision.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      vehicles: vehicles.csv
+    output_table_name: vehicles_raw
+
+  - module: flatfile_persons
+    description: Raw persons involved in each NYC collision.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      persons: persons.csv
+    output_table_name: persons_raw
+
+bronze:
+  - module: bronze_crashes
+    description: Clean crash-level fields and create the injury label.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      crashes: flatfile_crashes_raw
+    output_table_name: crashes
+    partition_by: [year_month]
+
+  - module: bronze_vehicles
+    description: Normalize vehicle records and derive vehicle-age features.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      vehicles: flatfile_vehicles_raw
+    output_table_name: vehicles
+
+  - module: bronze_persons
+    description: Normalize person records without using injury labels as model features.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      persons: flatfile_persons_raw
+    output_table_name: persons
+
+silver:
+  - module: silver_vehicle_crash_features
+    description: Aggregate vehicle-level rows to one feature row per collision.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      vehicles: bronze_vehicles
+    output_table_name: vehicle_crash_features
+
+  - module: silver_person_crash_features
+    description: Aggregate person-level rows to one non-leaking feature row per collision.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      persons: bronze_persons
+    output_table_name: person_crash_features
+
+  - module: silver_collision_features
+    description: Join crash, vehicle, and person features into a model-ready collision table.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      crashes: bronze_crashes
+      vehicles: silver_vehicle_crash_features
+      persons: silver_person_crash_features
+    output_table_name: collision_features
+    partition_by: [year_month]
+
+gold:
+  - module: gold_collision_training_set
+    description: Final training set for the diamond injury-risk model.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      features: silver_collision_features
+    output_table_name: collision_training_set
+    partition_by: [year_month]
+    tests:
+      - not_null: [collision_id, label, crash_hour]
+      - unique: [collision_id]
+      - row_count: {min: 1}
+
+diamond:
+  - module: diamond_collision_injury_model
+    description: Train a NumPy logistic model and write model-quality metrics.
+    class_name: bases.local_polars_parquet.LocalPolarsParquetBase
+    input_tables:
+      training: gold_collision_training_set
+    output_table_name: collision_injury_model_metrics
+    tests:
+      - row_count: {min: 1}

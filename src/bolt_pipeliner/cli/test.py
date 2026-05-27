@@ -9,6 +9,7 @@ from typing import Optional
 
 from bolt_pipeliner.config import load_config
 from bolt_pipeliner.runner import _module_import_path, _resolve_base_class
+from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 from bolt_pipeliner.testing.runner import run_checks
 
 
@@ -28,6 +29,7 @@ def execute(
     layer_paths: dict[str, str] = config.get("layers", {}) or {}
 
     layers_to_run = [layer] if layer else list(layer_paths.keys())
+    spark_profile = resolve_spark_profile(config_path, config)
 
     spark = None
     total_failed = 0
@@ -54,7 +56,10 @@ def execute(
             if base_cls.__module__.startswith("bolt_pipeliner.bases.spark") and spark is None:
                 from bolt_pipeliner.sessions import create_session
 
-                spark = create_session("local")
+                spark = create_session(
+                    spark_profile.profile,
+                    spark_config=spark_profile.spark_config,
+                )
 
             init_kwargs = dict(
                 layer=stage,

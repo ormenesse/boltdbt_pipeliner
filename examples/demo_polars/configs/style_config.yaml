@@ -1,0 +1,49 @@
+style_colors:
+  layers_colors:
+    raw:
+      stroke: "#172554"
+      fill: "#DBEAFE"
+    flatfile:
+      stroke: "#334155"
+      fill: "#F1F5F9"
+    bronze:
+      stroke: "#92400E"
+      fill: "#FEF3C7"
+    silver:
+      stroke: "#475569"
+      fill: "#E2E8F0"
+    gold:
+      stroke: "#854D0E"
+      fill: "#FEF9C3"
+    diamond:
+      stroke: "#059669"
+      fill: "#D1FAE5"
+
+  body_background: "#0F172A"
+  body_text: "#E2E8F0"
+  panel_background: "#F8FAFC"
+  panel_border: "#CBD5E1"
+  panel_shadow: "rgba(15,23,42,.28)"
+  heading_accent: "#059669"
+  rule_color: "#334155"
+  meta_text: "#64748B"
+  table_cell_text: "#334155"
+  link_text: "#059669"
+  btn_bg: "#059669"
+  btn_text: "#FFFFFF"
+  btn_hover_bg: "#047857"
+  code_bg: "#0F172A"
+  code_border: "#1E293B"
+  code_inset_highlight: "rgba(255,255,255,.06)"
+  fade_top: "rgba(15,23,42,0)"
+  fade_mid: "rgba(15,23,42,.85)"
+  fade_bottom: "rgba(15,23,42,1)"
+  mermaid_text: "#111827"
+  mermaid_line: "#64748B"
+  mermaid_tertiary: "#94A3B8"
+  index_accent: "#059669"
+  index_accent_hover: "#047857"
+  index_text: "#0F172A"
+  index_page_bg: "#F8FAFC"
+  index_panel_bg: "#FFFFFF"
+  index_border: "#CBD5E1"

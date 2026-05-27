@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-VALID_TARGETS = {"airflow", "documentation", "layers", "notebook", "snowflakeddl", "all"}
+VALID_TARGETS = {"airflow", "documentation", "layers", "notebook", "all"}
 
 
 def execute(targets: Iterable[str], config_path: Path) -> None:
@@ -35,10 +35,5 @@ def execute(targets: Iterable[str], config_path: Path) -> None:
         from bolt_pipeliner.generators import notebook as gen_notebook
 
         gen_notebook.create_etl_notebook(str(config_path))
-
-    if run_all or "snowflakeddl" in targets:
-        from bolt_pipeliner.generators import snowflake_ddl as gen_ddl
-
-        gen_ddl.create_ddls_from_schema()
 
     print("\nGeneration completed!\n")

@@ -79,7 +79,7 @@ def run(
 @app.command()
 def generate(
     targets: list[str] = typer.Argument(
-        ..., help="One or more of: airflow, documentation, layers, notebook, snowflakeddl, all"
+        ..., help="One or more of: airflow, documentation, layers, notebook, all"
     ),
     config: Path = typer.Option(
         Path("configs/etl_config.yaml"),
@@ -88,7 +88,7 @@ def generate(
         help="Path to YAML config",
     ),
 ) -> None:
-    """Generate downstream artifacts (Airflow DAGs, docs, layer scripts, notebook, DDLs)."""
+    """Generate downstream artifacts (Airflow DAGs, docs, layer scripts, notebook)."""
     gen_cmd.execute(targets, config)
 
 

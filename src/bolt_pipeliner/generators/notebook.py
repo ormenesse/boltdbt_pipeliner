@@ -6,6 +6,7 @@ import sys
 import os
 
 from bolt_pipeliner.generators._paths import ETL_BASE_SOURCE, PACKAGE_ROOT, TEMPLATES_DOCS
+from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 
 
 def load_yaml_config(path):
@@ -14,7 +15,7 @@ def load_yaml_config(path):
         return yaml.safe_load(f)
 
 
-def add_initial_cells(notebook, config):
+def add_initial_cells(notebook, config, config_path):
     """Add initial setup cells to the notebook."""
     # CSS styling cell
     css_style = """%%html
@@ -26,13 +27,20 @@ div.jp-OutputArea-output pre {
     notebook.cells.append(new_code_cell(css_style))
     
     # Spark configuration
-    # TODO
+    spark_profile = resolve_spark_profile(config_path, config)
+    spark_config_source = str(spark_profile.path) if spark_profile.path else "defaults"
+    notebook.cells.append(new_code_cell(
+        "# Spark configuration resolved from etl_config.yaml / configs/spark/*.toml\n"
+        f"spark_profile = {spark_profile.profile!r}\n"
+        f"spark_config_source = {spark_config_source!r}\n"
+        f"spark_config = {spark_profile.spark_config!r}"
+    ))
     
     # Spark session setup
     with open(str(PACKAGE_ROOT / "sessions" / "local.py"), "r", encoding="utf-8") as f:
         spark_session_code = f.read()
     notebook.cells.append(new_code_cell(spark_session_code))
-    notebook.cells.append(new_code_cell("spark = create_session()"))
+    notebook.cells.append(new_code_cell("spark = create_session(spark_config=spark_config)"))
 
     # ETL base code
     with open(str(ETL_BASE_SOURCE), 'r', encoding="utf-8") as f:
@@ -148,13 +156,13 @@ def create_etl_notebook(config_path, layers_arg=None, output_file="etl_jobs_note
     
     # Skip if only one layer (seems to be a special case in original code)
     if len(layers_to_process) == 1:
-        layers_to_process = []
+        layers_to_process = {}
     
     # Create notebook
     notebook = new_notebook()
     
     # Add initial setup cells
-    add_initial_cells(notebook, config)
+    add_initial_cells(notebook, config, config_path)
     
     # Process each layer
     for layer, module_prefix in layers_to_process.items():

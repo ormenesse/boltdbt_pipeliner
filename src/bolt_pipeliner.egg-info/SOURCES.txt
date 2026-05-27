@@ -29,9 +29,9 @@ src/bolt_pipeliner/generators/airflow.py
 src/bolt_pipeliner/generators/documentation.py
 src/bolt_pipeliner/generators/layers.py
 src/bolt_pipeliner/generators/notebook.py
-src/bolt_pipeliner/generators/snowflake_ddl.py
 src/bolt_pipeliner/sessions/__init__.py
 src/bolt_pipeliner/sessions/local.py
+src/bolt_pipeliner/sessions/profiles.py
 src/bolt_pipeliner/templates/airflow/dag.txt
 src/bolt_pipeliner/templates/airflow/emrcontaineroperator.txt
 src/bolt_pipeliner/templates/airflow/serverless_dag.py
@@ -46,11 +46,14 @@ src/bolt_pipeliner/templates/docs/mermaid_page.txt
 src/bolt_pipeliner/testing/__init__.py
 src/bolt_pipeliner/testing/checks.py
 src/bolt_pipeliner/testing/runner.py
+tests/test_cli_generate.py
 tests/test_cli_init.py
 tests/test_cli_run.py
 tests/test_config_loader.py
 tests/test_data_checks.py
 tests/test_generators_paths.py
+tests/test_notebook_generator.py
 tests/test_package_imports_lazily.py
 tests/test_runner.py
 tests/test_selection.py
+tests/test_spark_profiles.py

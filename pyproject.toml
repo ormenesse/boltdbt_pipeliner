@@ -99,6 +99,7 @@ version = { attr = "bolt_pipeliner.__version__" }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100

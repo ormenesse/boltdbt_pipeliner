@@ -90,3 +90,41 @@ def test_run_with_empty_selector_resolves_to_nothing(tmp_path, capsys):
     # the "zero jobs" path.
     with pytest.raises(ValueError, match="No job matches"):
         run(cfg, select="nope")
+
+
+def test_run_uses_resolved_spark_profile_for_session_creation(tmp_path, monkeypatch):
+    cfg = tmp_path / "configs" / "etl_config.yaml"
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text(
+        yaml.safe_dump(
+            {
+                "configs": {},
+                "layers": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    spark_dir = cfg.parent / "spark"
+    spark_dir.mkdir(parents=True, exist_ok=True)
+    (spark_dir / "local.toml").write_text(
+        "[runtime]\n"
+        "target = \"local\"\n"
+        "\n"
+        "[spark]\n"
+        "\"spark.sql.shuffle.partitions\" = 33\n",
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    def _fake_create_session(profile, spark_config=None):
+        captured["profile"] = profile
+        captured["spark_config"] = spark_config or {}
+        return object()
+
+    monkeypatch.setattr("bolt_pipeliner.sessions.create_session", _fake_create_session)
+
+    run(cfg)
+
+    assert captured["profile"] == "local"
+    assert captured["spark_config"]["spark.sql.shuffle.partitions"] == "33"

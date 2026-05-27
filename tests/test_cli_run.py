@@ -17,7 +17,7 @@ def test_run_rejects_select_combined_with_layer_flags():
     """
     result = runner.invoke(app, ["run", "--select", "bronze_x", "--bronze"])
     assert result.exit_code == 2
-    assert "mutually exclusive" in result.stderr or "mutually exclusive" in result.stdout
+    assert "mutually exclusive" in result.output
 
 
 def test_run_help_mentions_selector_syntax():

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: bolt_pipeliner
-Version: 0.2.1
+Version: 0.2.2
 Summary: Config-driven ETL framework for Spark, Pandas, and Polars.
 Author: Vinicius Ormenesse
 License-Expression: Apache-2.0
@@ -71,9 +71,9 @@ bolt test
 bolt generate documentation
 ```
 
-The framework is inspired by dbt's `tests:` ergonomics but stays Python-first: jobs are plain modules exposing a `process_data(self, input_tables)` function, the runtime wires them onto a shared `ETLBase`, and downstream artifacts (Airflow DAGs, HTML docs, standalone layer scripts, notebooks, Snowflake DDLs) are regenerated from the same config.
+The framework is inspired by dbt's `tests:` ergonomics but stays Python-first: jobs are plain modules exposing a `process_data(self, input_tables)` function, the runtime wires them onto a shared `ETLBase`, and downstream artifacts (Airflow DAGs, HTML docs, standalone layer scripts, notebooks) are regenerated from the same config.
 
-> Browsing the repo? The **package code** lives under [`src/bolt_pipeliner/`](./src/bolt_pipeliner). Sample projects (a runnable demo plus two large reference projects) live under [`examples/`](./examples).
+> Browsing the repo? The **package code** lives under [`src/bolt_pipeliner/`](./src/bolt_pipeliner). Sample projects (Spark/Pandas/Polars runnable demos plus larger reference projects) live under [`examples/`](./examples).
 
 ---
 
@@ -217,7 +217,7 @@ bolt init      PROJECT_NAME [--path PATH] [--preset NAME] [--vendor/--no-vendor]
 bolt run       [--config PATH] [--flatfile|--bronze|--silver|--gold|--diamond]
                               [--select SEL] [--layer L]
 bolt test      [--config PATH] [--layer L] [--module M]
-bolt generate  {airflow|documentation|layers|notebook|snowflakeddl|all} [--config PATH]
+bolt generate  {airflow|documentation|layers|notebook|all} [--config PATH]
 ```
 
 | Command | What it does |
@@ -225,7 +225,7 @@ bolt generate  {airflow|documentation|layers|notebook|snowflakeddl|all} [--confi
 | `bolt init` | Interactive project scaffolder (above). `--no-vendor` skips the vendored copy. |
 | `bolt run` | Walks the layers declared in `configs/etl_config.yaml` and executes every job in dependency order. Pick a subset with `--bronze` / `--silver` / …, or with `--select` / `-s` for dbt-style table-level selection (see [Selecting jobs to run](#selecting-jobs-to-run)). |
 | `bolt test` | Runs the `tests:` block on each job. Exits non-zero on failure. |
-| `bolt generate` | Regenerates Airflow DAGs, HTML docs, standalone layer scripts, the notebook, and Snowflake DDLs from the config. Use `all` to run all of them. |
+| `bolt generate` | Regenerates Airflow DAGs, HTML docs, standalone layer scripts, and the notebook from the config. Use `all` to run all of them. |
 
 `bolt --help` and `bolt <subcommand> --help` print the full option set. Inside a scaffolded project you can substitute `python bolt.py …` / `python main.py …` / `python generate.py …` (see [Self-contained projects](#self-contained-projects-vendored-copy--shims)).
 
@@ -472,7 +472,6 @@ results          # rendered inline as HTML
 | `documentation` | `outputs/documentation/` | HTML index + per-table pages with Mermaid lineage. Always emits `outputs/schema/schema.py` for the [Spark-free documentation flow](#documentation-flow-without-spark). |
 | `layers` | `outputs/layers/<layer>.py` | One executable script per layer, inlining every job in dependency order. Useful for ad-hoc runs without Airflow. |
 | `notebook` | `outputs/notebook/etl_jobs_notebook.ipynb` | A Jupyter notebook with one cell per job (plus Spark session + ETLBase setup cells). |
-| `snowflakeddl` | `outputs/snowflake_ddls/` | `CREATE TABLE` DDLs derived from `outputs/schema/schema.csv`. |
 | `all` | (all of the above) | |
 
 The generators read templates from the package (`src/bolt_pipeliner/templates/`); they're engine-agnostic and don't ship any cloud-specific code paths.
@@ -492,7 +491,7 @@ The order of jobs inside each layer in YAML is **irrelevant** — the generators
 | `local` | `sessions/local.py` | Implemented — returns the active SparkSession or builds one. |
 | `databricks`, `emr`, `glue`, `gcp`, `azure`, `k8s` | `sessions/<profile>.py` | Stubs today; planned. |
 
-Override via `BOLT_SPARK_PROFILE` (read by the generated standalone scripts) or by editing `configs/spark/<profile>.toml`.
+`bolt run`, `bolt test`, and notebook generation auto-load `configs/spark/<profile>.toml`. Override profile selection via `BOLT_SPARK_PROFILE` (or `configs.spark_profile` in `etl_config.yaml`).
 
 ```toml
 # configs/spark/local.toml
@@ -587,7 +586,7 @@ See `model_notebooks/README.md` in any scaffolded project for the full quickstar
    → writes `outputs/schema/schema.py` and the HTML (falling back to whatever `schema.csv` exists, or empty if none).
 2. Copy `schema.py` into the environment that has Spark (Databricks notebook, EMR shell, …) and run it. It prints a CSV.
 3. Save that CSV to `outputs/schema/schema.csv`.
-4. Re-run `python generate.py documentation` — the HTML now picks up the real column definitions, and `python generate.py snowflakeddl` can derive Snowflake DDLs from the same CSV.
+4. Re-run `python generate.py documentation` — the HTML now picks up the real column definitions.
 
 ---
 
@@ -618,8 +617,7 @@ my_project/
     ├── documentation/
     ├── layers/
     ├── notebook/
-    ├── schema/
-    └── snowflake_ddls/
+    └── schema/
 ```
 
 Framework code itself lives under `src/bolt_pipeliner/`:
@@ -630,7 +628,7 @@ src/bolt_pipeliner/
 ├── bases/                        # five sibling ETLBase variants
 ├── sessions/                     # Spark profile dispatch
 ├── config/loader.py              # YAML loader + key normalization
-├── generators/                   # airflow / documentation / layers / notebook / snowflake_ddl
+├── generators/                   # airflow / documentation / layers / notebook
 ├── templates/{airflow,docs}/     # bundled templates
 ├── testing/                      # data-quality checks + runner
 └── cli/                          # typer app (init / run / generate / test)
@@ -640,7 +638,10 @@ And sample projects live under `examples/`:
 
 ```
 examples/
-├── demo/        # runnable PySpark + Iceberg medallion (used in this repo's CI)
+├── demo/         # runnable PySpark + Iceberg medallion (used in this repo's CI)
+├── demo_spark/   # local Spark + Parquet NYC collision ML scenario
+├── demo_pandas/  # local Pandas + Parquet translation of the same scenario
+└── demo_polars/  # local Polars + Parquet translation of the same scenario
 ```
 
 See [`examples/README.md`](./examples/README.md) for a guided tour.

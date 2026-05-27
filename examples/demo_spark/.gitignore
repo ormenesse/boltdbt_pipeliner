@@ -1,0 +1,4 @@
+data/raw/*.csv
+data/raw/*.parquet/
+outputs/
+!data/raw/.gitkeep

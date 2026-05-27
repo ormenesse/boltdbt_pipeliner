@@ -7,6 +7,7 @@ from typing import Any, Iterable
 
 from bolt_pipeliner.config import load_config
 from bolt_pipeliner.selection import select as select_jobs
+from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 
 _BUILTIN_BASE_MODULES: dict[str, str] = {
     "ETLBase": "bolt_pipeliner.bases.spark_iceberg",
@@ -101,7 +102,8 @@ def run(
     if spark is None:
         from bolt_pipeliner.sessions import create_session
 
-        spark = create_session("local")
+        profile = resolve_spark_profile(config_path, config)
+        spark = create_session(profile.profile, spark_config=profile.spark_config)
 
     for stage, job in plan:
         layer_dir = layer_paths.get(stage)
