@@ -9,6 +9,7 @@ from bolt_pipeliner.generators._paths import (
     TEMPLATES_AIRFLOW,
     TEMPLATES_DOCS,
 )
+from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 
 
 # Constants
@@ -24,7 +25,121 @@ TEMPLATE_FILES = {
     'job_script': str(TEMPLATES_DOCS / "job_script.txt"),
     'spark_config': str(TEMPLATES_AIRFLOW / "spark_config.txt"),
     'dag_template': str(TEMPLATES_AIRFLOW / "dag.txt"),
-    'container_operator': str(TEMPLATES_AIRFLOW / "emrcontaineroperator.txt"),
+}
+
+
+RUNTIME_SPECS = {
+    "local": {
+        "operator_imports": "from airflow.operators.bash import BashOperator",
+        "runtime_constants": "",
+        "task_template": """{job_script_name} = BashOperator(
+|    task_id=\"{job_script_name}\",
+|    bash_command=\"python ./outputs/airflow/code/{job_script_name}.py\",
+|)""",
+    },
+    "emr": {
+        "operator_imports": "from airflow.providers.amazon.aws.operators.emr import EmrServerlessStartJobOperator",
+        "runtime_constants": """
+EMR_APPLICATION_ID = \"REPLACE_WITH_EMR_SERVERLESS_APPLICATION_ID\"
+EMR_EXECUTION_ROLE_ARN = \"arn:aws:iam::REPLACE_ACCOUNT_ID:role/REPLACE_ROLE_NAME\"
+EMR_CODE_BASE_URI = \"s3://REPLACE_BUCKET/airflow/code\"
+EMR_LOG_URI = \"s3://REPLACE_BUCKET/airflow/logs/\"
+EMR_SPARK_SUBMIT_PARAMETERS = \"--conf spark.sql.shuffle.partitions=200\"
+""".strip(),
+        "task_template": """{job_script_name} = EmrServerlessStartJobOperator(
+|    task_id=\"{job_script_name}\",
+|    application_id=EMR_APPLICATION_ID,
+|    execution_role_arn=EMR_EXECUTION_ROLE_ARN,
+|    name=\"{job_script_name}\",
+|    job_driver={{
+|        \"sparkSubmit\": {{
+|            \"entryPoint\": f\"{{EMR_CODE_BASE_URI}}/{job_script_name}.py\",
+|            \"sparkSubmitParameters\": EMR_SPARK_SUBMIT_PARAMETERS,
+|        }}
+|    }},
+|    configuration_overrides={{
+|        \"monitoringConfiguration\": {{
+|            \"s3MonitoringConfiguration\": {{\"logUri\": EMR_LOG_URI}}
+|        }}
+|    }},
+|    aws_conn_id=\"aws_default\",
+|    wait_for_completion=True,
+|)""",
+    },
+    "gcp": {
+        "operator_imports": "from airflow.providers.google.cloud.operators.dataproc import DataprocSubmitJobOperator",
+        "runtime_constants": """
+GCP_PROJECT_ID = \"REPLACE_GCP_PROJECT_ID\"
+GCP_REGION = \"REPLACE_GCP_REGION\"
+DATAPROC_CLUSTER = \"REPLACE_DATAPROC_CLUSTER\"
+GCP_CODE_BASE_URI = \"gs://REPLACE_BUCKET/airflow/code\"
+""".strip(),
+        "task_template": """{job_script_name} = DataprocSubmitJobOperator(
+|    task_id=\"{job_script_name}\",
+|    project_id=GCP_PROJECT_ID,
+|    region=GCP_REGION,
+|    gcp_conn_id=\"google_cloud_default\",
+|    job={{
+|        \"reference\": {{\"project_id\": GCP_PROJECT_ID}},
+|        \"placement\": {{\"cluster_name\": DATAPROC_CLUSTER}},
+|        \"pyspark_job\": {{
+|            \"main_python_file_uri\": f\"{{GCP_CODE_BASE_URI}}/{job_script_name}.py\"
+|        }},
+|    }},
+|)""",
+    },
+    "azure": {
+        "operator_imports": "from airflow.providers.microsoft.azure.operators.container_instances import AzureContainerInstancesOperator",
+        "runtime_constants": """
+AZURE_RESOURCE_GROUP = \"REPLACE_AZURE_RESOURCE_GROUP\"
+AZURE_REGION = \"eastus\"
+AZURE_CONTAINER_IMAGE = \"REPLACE_IMAGE_WITH_PYSPARK_AND_BOLT\"
+AZURE_CODE_BASE_URI = \"https://REPLACE_STORAGE.blob.core.windows.net/airflow/code\"
+""".strip(),
+        "task_template": """{job_script_name} = AzureContainerInstancesOperator(
+|    task_id=\"{job_script_name}\",
+|    ci_conn_id=\"azure_default\",
+|    resource_group=AZURE_RESOURCE_GROUP,
+|    name=\"{job_script_name}\",
+|    image=AZURE_CONTAINER_IMAGE,
+|    region=AZURE_REGION,
+|    command=[\"python\", f\"{{AZURE_CODE_BASE_URI}}/{job_script_name}.py\"],
+|)""",
+    },
+    "k8s": {
+        "operator_imports": "from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator",
+        "runtime_constants": """
+K8S_NAMESPACE = \"default\"
+K8S_IMAGE = \"REPLACE_IMAGE_WITH_PYSPARK_AND_BOLT\"
+""".strip(),
+        "task_template": """{job_script_name} = KubernetesPodOperator(
+|    task_id=\"{job_script_name}\",
+|    namespace=K8S_NAMESPACE,
+|    image=K8S_IMAGE,
+|    cmds=[\"python\", \"/opt/airflow/dags/code/{job_script_name}.py\"],
+|    get_logs=True,
+|)""",
+    },
+    "databricks": {
+        "operator_imports": "from airflow.providers.databricks.operators.databricks import DatabricksSubmitRunOperator",
+        "runtime_constants": """
+DATABRICKS_CODE_BASE_URI = \"dbfs:/FileStore/airflow/code\"
+""".strip(),
+        "task_template": """{job_script_name} = DatabricksSubmitRunOperator(
+|    task_id=\"{job_script_name}\",
+|    databricks_conn_id=\"databricks_default\",
+|    json={{
+|        \"new_cluster\": {{
+|            \"spark_version\": \"13.3.x-scala2.12\",
+|            \"node_type_id\": \"i3.xlarge\",
+|            \"num_workers\": 2,
+|        }},
+|        \"spark_python_task\": {{
+|            \"python_file\": f\"{{DATABRICKS_CODE_BASE_URI}}/{job_script_name}.py\",
+|        }},
+|    }},
+|)""",
+    },
 }
 
 
@@ -80,6 +195,26 @@ def get_previous_layer(current_layer: str, layer_order: List[str]) -> Optional[s
     except ValueError:
         pass
     return None
+
+
+def normalize_airflow_runtime(profile: str) -> str:
+    """Map spark/runtime profiles to Airflow DAG operator families."""
+    key = (profile or "").lower()
+    if key in {"emr", "glue"}:
+        return "emr"
+    if key in {"gcp", "dataproc"}:
+        return "gcp"
+    if key in {"azure"}:
+        return "azure"
+    if key in {"k8s", "kubernetes"}:
+        return "k8s"
+    if key in {"databricks"}:
+        return "databricks"
+    return "local"
+
+
+def get_runtime_spec(runtime_target: str) -> Dict[str, str]:
+    return RUNTIME_SPECS.get(runtime_target, RUNTIME_SPECS["local"])
 
 
 def has_dependencies_ready(job: Dict, layer: str, completed_jobs: Set[str]) -> bool:
@@ -198,26 +333,32 @@ def generate_job_script(job: Dict, layer: str, module_prefix: str,
     return job_script_name
 
 
-def generate_dag_script(layer: str, completed_jobs: List[str], 
-                       config_values: tuple, layer_order: List[str]) -> None:
+def generate_dag_script(
+    layer: str,
+    completed_jobs: List[str],
+    config_values: tuple,
+    layer_order: List[str],
+    runtime_target: str,
+) -> None:
     """Generate the main DAG script for a layer with dependencies."""
     _, _, fixed_schema, _ = config_values
     
     # Read DAG templates
     dag_template = read_template_file(TEMPLATE_FILES['dag_template'])
-    container_op = read_template_file(TEMPLATE_FILES['container_operator'])
-    
-    if not dag_template or not container_op:
+    if not dag_template:
         print(f"Error: Could not read DAG templates for layer '{layer}'")
         return
+
+    runtime_spec = get_runtime_spec(runtime_target)
     
     # Build EMR configuration and task order
-    emr_configuration_code = ""
+    task_operator_code = ""
     tasks_order = ""
     
     for job_name in completed_jobs:
-        emr_configuration_code += "        " + container_op.format(
+        task_operator_code += "        " + runtime_spec["task_template"].format(
             job_script_name=job_name,
+            layer=layer,
             database=fixed_schema
         ).replace("|", "        ") + "\n"
         tasks_order += f"\n        >> {job_name}"
@@ -255,7 +396,9 @@ def generate_dag_script(layer: str, completed_jobs: List[str],
     with open(output_file, 'w', encoding="utf-8") as f:
         f.write(dag_template.format(
             dag_name=f'boltpipe_{layer}',
-            emr_configuration_code=emr_configuration_code,
+            operator_imports=runtime_spec["operator_imports"],
+            runtime_constants=runtime_spec["runtime_constants"],
+            emr_configuration_code=task_operator_code,
             tasks_order=tasks_order,
             dependency_sensor_code=dependency_sensor_code,
             previous_layer=previous_layer,
@@ -263,17 +406,24 @@ def generate_dag_script(layer: str, completed_jobs: List[str],
             schedule=schedule
         ))
     
-    print(f"DAG script generated: {output_file} ({len(completed_jobs)} jobs)")
+    print(
+        f"DAG script generated: {output_file} ({len(completed_jobs)} jobs, runtime={runtime_target})"
+    )
 
 
-def process_layer(layer: str, module_prefix: str, jobs: List[Dict], 
-                 config_values: tuple) -> None:
+def process_layer(
+    layer: str,
+    module_prefix: str,
+    jobs: List[Dict],
+    config_values: tuple,
+    runtime_target: str,
+) -> None:
     """Process a single ETL layer and generate all required scripts."""
     print(f"Generating Airflow DAG for layer '{layer}'...")
     
     # Process jobs in dependency order
     completed_jobs = process_job_queue(jobs, layer)
-    layer_oder = config_values[-1].keys()
+    layer_order = get_layer_order(config_values[-1])
     # Generate individual job scripts
     successful_jobs = set()
     for job in jobs:
@@ -283,7 +433,7 @@ def process_layer(layer: str, module_prefix: str, jobs: List[Dict],
     
     # Generate main DAG script
     if successful_jobs:
-        generate_dag_script(layer, completed_jobs, config_values, layer_oder)
+        generate_dag_script(layer, completed_jobs, config_values, layer_order, runtime_target)
     else:
         print(f"Warning: No successful jobs for layer '{layer}', skipping DAG generation")
 
@@ -299,6 +449,9 @@ def create_layer_scripts(config_path: str, target_layers: Optional[List[str]] = 
     create_output_directories()
     config_values = extract_config_values(config)
     layers = filter_layers(config['layers'], target_layers)
+    spark_profile = resolve_spark_profile(config_path, config)
+    runtime_target = normalize_airflow_runtime(spark_profile.profile)
+    print(f"Airflow runtime detected from Spark profile '{spark_profile.profile}': {runtime_target}")
     
     # Process each layer
     for layer, module_prefix in layers.items():
@@ -311,7 +464,7 @@ def create_layer_scripts(config_path: str, target_layers: Optional[List[str]] = 
             print(f"Warning: No jobs found for layer '{layer}', skipping...")
             continue
         
-        process_layer(layer, module_prefix, jobs, config_values)
+        process_layer(layer, module_prefix, jobs, config_values, runtime_target)
 
 
 def main() -> None:

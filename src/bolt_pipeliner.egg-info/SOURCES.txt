@@ -46,6 +46,7 @@ src/bolt_pipeliner/templates/docs/mermaid_page.txt
 src/bolt_pipeliner/testing/__init__.py
 src/bolt_pipeliner/testing/checks.py
 src/bolt_pipeliner/testing/runner.py
+tests/test_airflow_generator.py
 tests/test_cli_generate.py
 tests/test_cli_init.py
 tests/test_cli_run.py

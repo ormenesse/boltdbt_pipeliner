@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-05-27
+
+### Added
+- Runtime-aware Airflow DAG generation: `bolt generate airflow` now picks an operator family from the resolved Spark profile (`emr/glue`, `gcp`, `azure`, `k8s`, `databricks`, or local fallback) and emits matching DAG skeletons.
+- Spark profile resolution utility used across runtime and generators (`configs/spark/<profile>.toml`, `configs.spark_profile`, `BOLT_SPARK_PROFILE`).
+- New runnable examples under `examples/`: `demo_spark/`, `demo_pandas/`, and `demo_polars/`, all based on joinable NYC Open Data CSVs with a diamond-layer model job.
+
+### Changed
+- `bolt run` and `bolt test` now automatically load Spark profile config rather than hardcoding local defaults.
+- Notebook generation now injects resolved Spark profile/config and builds the session with that config.
+- README and examples docs updated to describe automatic Spark profile loading and multi-runtime Airflow generation.
+
 ## [0.2.2] - 2026-05-27
 
 ### Removed
@@ -42,7 +54,8 @@ Notebook generation spark configuration.
 - The scaffolder's "Next steps" message now points at `python main.py --help` / `python generate.py documentation` when vendoring is enabled.
 - Added `Topic :: Scientific/Engineering :: Information Analysis` and `Intended Audience :: Information Technology` classifiers.
 
-[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.3
 [0.2.2]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.2
 [0.2.0]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.1.0

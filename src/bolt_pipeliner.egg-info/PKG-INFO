@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: bolt_pipeliner
-Version: 0.2.2
+Version: 0.2.3
 Summary: Config-driven ETL framework for Spark, Pandas, and Polars.
 Author: Vinicius Ormenesse
 License-Expression: Apache-2.0
@@ -468,13 +468,13 @@ results          # rendered inline as HTML
 
 | Target | Output | What you get |
 |---|---|---|
-| `airflow` | `outputs/airflow/{code,dags}/` | One DAG per layer + one standalone Spark script per job. The DAG template uses plain Airflow operators; swap in `EmrContainerOperator` / `DatabricksSubmitRunOperator` / `KubernetesPodOperator` as needed. |
+| `airflow` | `outputs/airflow/{code,dags}/` | One DAG per layer + one standalone Spark script per job. The generator auto-selects an Airflow operator family from your Spark profile (`emr/glue`, `gcp`, `azure`, `k8s`, `databricks`, or local fallback), then emits placeholders for your real cluster/resource identifiers. |
 | `documentation` | `outputs/documentation/` | HTML index + per-table pages with Mermaid lineage. Always emits `outputs/schema/schema.py` for the [Spark-free documentation flow](#documentation-flow-without-spark). |
 | `layers` | `outputs/layers/<layer>.py` | One executable script per layer, inlining every job in dependency order. Useful for ad-hoc runs without Airflow. |
 | `notebook` | `outputs/notebook/etl_jobs_notebook.ipynb` | A Jupyter notebook with one cell per job (plus Spark session + ETLBase setup cells). |
 | `all` | (all of the above) | |
 
-The generators read templates from the package (`src/bolt_pipeliner/templates/`); they're engine-agnostic and don't ship any cloud-specific code paths.
+The generators read templates from the package (`src/bolt_pipeliner/templates/`). Airflow DAGs include cloud-specific operator skeletons, but you still provide environment values (for example application IDs, cluster names, image URIs, connection IDs).
 
 ### Smart dependency resolution
 
@@ -491,7 +491,7 @@ The order of jobs inside each layer in YAML is **irrelevant** — the generators
 | `local` | `sessions/local.py` | Implemented — returns the active SparkSession or builds one. |
 | `databricks`, `emr`, `glue`, `gcp`, `azure`, `k8s` | `sessions/<profile>.py` | Stubs today; planned. |
 
-`bolt run`, `bolt test`, and notebook generation auto-load `configs/spark/<profile>.toml`. Override profile selection via `BOLT_SPARK_PROFILE` (or `configs.spark_profile` in `etl_config.yaml`).
+`bolt run`, `bolt test`, notebook generation, and Airflow generation auto-load `configs/spark/<profile>.toml`. Override profile selection via `BOLT_SPARK_PROFILE` (or `configs.spark_profile` in `etl_config.yaml`).
 
 ```toml
 # configs/spark/local.toml

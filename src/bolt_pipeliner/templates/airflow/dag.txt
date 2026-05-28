@@ -11,6 +11,10 @@ from airflow.operators.empty import EmptyOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.task_group import TaskGroup
 
+{operator_imports}
+
+{runtime_constants}
+
 default_args = {{
     "owner": "bolt_pipeliner",
     "start_date": dt.datetime.today().replace(
