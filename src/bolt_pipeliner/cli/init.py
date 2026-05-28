@@ -40,6 +40,22 @@ ENGINE_CHOICES = ["pyspark", "pandas", "polars"]
 SPARK_PROFILES = ["local", "databricks", "emr", "glue", "gcp", "azure", "k8s"]
 EXECUTION_ENVS = ["terminal", "notebook", "airflow", "databricks-jobs"]
 
+PROFILE_LOCATION_DEFAULTS: dict[str, tuple[str, str]] = {
+    "local": ("data/layers", "data/flatfiles"),
+    "databricks": (
+        "dbfs:/<path>/layers",
+        "dbfs:/<path>/flatfiles",
+    ),
+    "gcp": ("gs://<bucket>/<path>/layers/", "gs://<bucket>/<path>/flatfiles/"),
+    "azure": (
+        "abfss://<container>@<storage-account>.dfs.core.windows.net/<path>/layers/",
+        "abfss://<container>@<storage-account>.dfs.core.windows.net/<path>/flatfiles/",
+    ),
+    "emr": ("s3://<bucket>/<path>/layers/", "s3://<bucket>/<path>/flatfiles/"),
+    "glue": ("s3://<bucket>/<path>/layers/", "s3://<bucket>/<path>/flatfiles/"),
+    "k8s": ("s3://<bucket>/<path>/layers/", "s3://<bucket>/<path>/flatfiles/"),
+}
+
 ENGINE_TO_BASE_CLASS = {
     "pyspark": "ETLBase",
     "pandas": "ETLBaseParquetPandas",
@@ -76,8 +92,24 @@ class InitAnswers:
     spark_profile: Optional[str]
     execution_env: str
     enable_ml: bool
+    output_location: str
+    flatfile_location: str
     vendor: bool = True
     extra_layer_names: list[str] = field(default_factory=list)
+
+
+def _default_data_locations(engine: str, spark_profile: Optional[str], project_name: str) -> tuple[str, str]:
+    del project_name
+    if engine != "pyspark":
+        output_template, flatfile_template = PROFILE_LOCATION_DEFAULTS["local"]
+    else:
+        profile_key = spark_profile or "local"
+        output_template, flatfile_template = PROFILE_LOCATION_DEFAULTS.get(
+            profile_key,
+            PROFILE_LOCATION_DEFAULTS["emr"],
+        )
+
+    return output_template, flatfile_template
 
 
 def _ask_interactive(
@@ -112,6 +144,30 @@ def _ask_interactive(
             choices=SPARK_PROFILES,
             default="local",
         ).unsafe_ask()
+
+    default_output_location, default_flatfile_location = _default_data_locations(
+        engine,
+        spark_profile,
+        project_name,
+    )
+
+    output_location = (
+        questionary.text(
+            "Where should transformed datasets be stored? (URI or local path)",
+            default=default_output_location,
+        ).unsafe_ask()
+        or default_output_location
+    )
+
+    flatfile_location = default_flatfile_location
+    if "flatfile" in layers:
+        flatfile_location = (
+            questionary.text(
+                "Where should flatfiles be read from? (URI or local path)",
+                default=default_flatfile_location,
+            ).unsafe_ask()
+            or default_flatfile_location
+        )
 
     execution_env = questionary.select(
         "Where will the pipeline run?",
@@ -149,6 +205,8 @@ def _ask_interactive(
         spark_profile=spark_profile,
         execution_env=execution_env,
         enable_ml=enable_ml,
+        output_location=output_location,
+        flatfile_location=flatfile_location,
         vendor=vendor,
     )
 
@@ -157,6 +215,11 @@ def _preset_answers(
     preset: str, project_name: str, target_dir: Path, vendor: bool = True
 ) -> InitAnswers:
     if preset == "minimal":
+        output_location, flatfile_location = _default_data_locations(
+            "pandas",
+            None,
+            project_name,
+        )
         return InitAnswers(
             project_name=project_name,
             target_dir=target_dir,
@@ -166,8 +229,15 @@ def _preset_answers(
             spark_profile=None,
             execution_env="terminal",
             enable_ml=False,
+            output_location=output_location,
+            flatfile_location=flatfile_location,
         )
     if preset == "medallion":
+        output_location, flatfile_location = _default_data_locations(
+            "pyspark",
+            "local",
+            project_name,
+        )
         return InitAnswers(
             project_name=project_name,
             target_dir=target_dir,
@@ -177,8 +247,15 @@ def _preset_answers(
             spark_profile="local",
             execution_env="terminal",
             enable_ml=False,
+            output_location=output_location,
+            flatfile_location=flatfile_location,
         )
     if preset == "diamond":
+        output_location, flatfile_location = _default_data_locations(
+            "pyspark",
+            "local",
+            project_name,
+        )
         return InitAnswers(
             project_name=project_name,
             target_dir=target_dir,
@@ -188,8 +265,15 @@ def _preset_answers(
             spark_profile="local",
             execution_env="airflow",
             enable_ml=True,
+            output_location=output_location,
+            flatfile_location=flatfile_location,
         )
     if preset == "pandas":
+        output_location, flatfile_location = _default_data_locations(
+            "pandas",
+            None,
+            project_name,
+        )
         return InitAnswers(
             project_name=project_name,
             target_dir=target_dir,
@@ -199,8 +283,15 @@ def _preset_answers(
             spark_profile=None,
             execution_env="notebook",
             enable_ml=False,
+            output_location=output_location,
+            flatfile_location=flatfile_location,
         )
     if preset == "polars":
+        output_location, flatfile_location = _default_data_locations(
+            "polars",
+            None,
+            project_name,
+        )
         return InitAnswers(
             project_name=project_name,
             target_dir=target_dir,
@@ -210,6 +301,8 @@ def _preset_answers(
             spark_profile=None,
             execution_env="notebook",
             enable_ml=False,
+            output_location=output_location,
+            flatfile_location=flatfile_location,
         )
     raise ValueError(
         f"Unknown preset '{preset}'. Valid: minimal, medallion, diamond, pandas, polars."
@@ -245,8 +338,8 @@ def _render_etl_config(ans: InitAnswers) -> str:
 
     return (
         "configs:\n"
-        f"  output_bucket: \"s3://{ans.project_name}/tables/\"\n"
-        f"  flatfile_bucket: \"s3://{ans.project_name}/flatfiles/\"\n"
+        f"  output_location: \"{ans.output_location}\"\n"
+        f"  flatfile_location: \"{ans.flatfile_location}\"\n"
         f"  schema: {ans.project_name}\n"
         "  catalog: dev_catalog\n"
         "  incremental_column: year_month\n"
@@ -260,9 +353,10 @@ def _render_etl_config(ans: InitAnswers) -> str:
 
 _LAYER_LOAD_NOTES = {
     "flatfile": (
-        "        Flatfile values are *relative file paths* under `configs.flatfile_bucket`\n"
-        "        (set in etl_config.yaml). Extension picks the reader: `.csv` → CSV,\n"
-        "        `.parquet` → Parquet, etc. Example value: `\"raw/storm_events.csv\"`.\n"
+        "        Flatfile values are *relative file paths* under `configs.flatfile_location`\n"
+        "        (set in etl_config.yaml). Extension picks the reader: `.csv`, `.parquet`,\n"
+        "        Excel (`.xlsx`/`.xls`), or JSON (`.json`/`.jsonl`).\n"
+        "        Example value: `\"raw/storm_events.csv\"`.\n"
     ),
     "bronze": (
         "        Bronze values can take two shapes:\n"

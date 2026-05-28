@@ -3,6 +3,8 @@ import logging
 
 from pyspark.sql import functions as F
 
+from bolt_pipeliner.bases._io import detect_file_format, resolve_data_path, to_pandas_path, to_spark_path
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -28,7 +30,12 @@ class ETLBaseParquet:
         self.output_table_name = output_table_name
         self.bucket = bucket
         self.input_tables = {}
-        self.parquet_path = f"s3a://{bucket}/{self.layer}_{output_table_name}.parquet"
+        self.parquet_path = to_spark_path(
+            resolve_data_path(
+                f"{self.layer}_{output_table_name}.parquet",
+                bucket,
+            )
+        )
         self.logging_string = f"{layer} {output_table_name}"
         self.partition_by = partition_by
         self.df = None
@@ -38,6 +45,40 @@ class ETLBaseParquet:
         self.incremental_column = incremental_column or self.DEFAULT_INCREMENTAL_COLUMN
         if self.layer == "flatfile":
             self.parquet_path = self.parquet_path.replace("flat_files", "data")
+
+    def _read_excel(self, path: str):
+        import pandas as pd
+
+        excel_path = to_pandas_path(path)
+        pdf = pd.read_excel(excel_path)
+        return self.spark.createDataFrame(pdf)
+
+    def _read_input_df(self, source: str):
+        resolved_path = to_spark_path(resolve_data_path(source, self.bucket))
+        file_format = detect_file_format(resolved_path)
+
+        if file_format == "csv":
+            return (
+                self.spark.read.option("header", True)
+                .option("inferSchema", True)
+                .option("multiLine", True)
+                .option("escape", '"')
+                .option("quote", '"')
+                .csv(resolved_path)
+            )
+        if file_format == "parquet":
+            return self.spark.read.parquet(resolved_path)
+        if file_format == "json":
+            return self.spark.read.option("multiLine", True).json(resolved_path)
+        if file_format == "jsonl":
+            return self.spark.read.json(resolved_path)
+        if file_format == "excel":
+            return self._read_excel(resolved_path)
+
+        raise ValueError(
+            f"Unsupported input format for '{source}'. Supported flatfile formats: "
+            ".csv, .parquet, .xlsx/.xls, .json, .jsonl/.ndjson."
+        )
 
     def check_if_tables_exists_find_yearmonths(self):
         if self.incremental:
@@ -74,22 +115,14 @@ class ETLBaseParquet:
                 )
                 logging.info(f"{self.logging_string} - Loaded - {self.input_table_names[key]}")
         elif self.layer == "flatfile":
-            for key in self.input_table_names.keys():
-                self.input_tables[key] = self.spark.read.csv(
-                    f"s3a://{self.bucket}/{self.input_table_names[key]}",
-                    header=True,
-                    inferSchema=True,
-                    multiLine=True,
-                    escape='"',
-                    quote='"',
-                )
+            for key, source in self.input_table_names.items():
+                self.input_tables[key] = self._read_input_df(source)
                 logging.info(f"{self.logging_string} - Loaded - {self.input_table_names[key]}")
         else:
-            for key in self.input_table_names.keys():
-                self.input_tables[key] = self.spark.read.parquet(
-                    f"s3a://{self.bucket}/{self.input_table_names[key]}.parquet"
-                )
-                logging.info(f"{self.logging_string} - Loaded - {self.input_table_names[key]}")
+            for key, source in self.input_table_names.items():
+                source_path = resolve_data_path(source, self.bucket, default_extension=".parquet")
+                self.input_tables[key] = self._read_input_df(source_path)
+                logging.info(f"{self.logging_string} - Loaded - {source}")
 
     def unload_data(self, processed_df):
         processed_df.cache()
@@ -98,15 +131,16 @@ class ETLBaseParquet:
             processed_df.write.mode("overwrite").parquet(self.parquet_path)
         else:
             if self.year_months is not None:
-                processed_df.filter(
-                    F.col(self.incremental_column).isin(self.year_months)
-                ).write.partition_by(self.partition_by).mode("overwrite").parquet(
-                    self.parquet_path
+                (
+                    processed_df.filter(F.col(self.incremental_column).isin(self.year_months))
+                    .write.partitionBy(*self.partition_by)
+                    .mode("overwrite")
+                    .parquet(self.parquet_path)
                 )
             else:
-                processed_df.write.partition_by(self.partition_by).mode(
-                    "overwrite"
-                ).parquet(self.parquet_path)
+                processed_df.write.partitionBy(*self.partition_by).mode("overwrite").parquet(
+                    self.parquet_path
+                )
         logging.info(f"{self.logging_string} - Data successfully saved to - {self.parquet_path}")
 
     def process_data(self, dfs):

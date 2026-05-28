@@ -1,6 +1,6 @@
 configs:
-  output_bucket: "s3://bolt_pipeliner/tables/"
-  flatfile_bucket: "s3://bolt_pipeliner/flatfiles/"
+  output_location: "s3://bolt_pipeliner/tables/"
+  flatfile_location: "s3://bolt_pipeliner/flatfiles/"
   schema: bolt_pipeliner
   catalog: catalog
 

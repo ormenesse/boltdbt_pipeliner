@@ -19,4 +19,4 @@ bolt run --config configs/etl_config.yaml
 
 `bolt run` automatically loads `configs/spark/local.toml`, including a deliberately small `spark.sql.shuffle.partitions` value so the demo shows where Spark tuning belongs.
 
-Outputs land in `outputs/tables/` and the trained model lands in `outputs/models/collision_injury_logreg/`.
+Layer outputs land in `data/layers/` and the trained model lands in `outputs/models/collision_injury_logreg/`.

@@ -1,13 +1,33 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import yaml
 
 DEFAULT_SCHEMA = "cxdw_dm"
 DEFAULT_INCREMENTAL_COLUMN = "year_month"
 DEFAULT_CLASS_NAME = "ETLBase"
+DEFAULT_OUTPUT_LOCATION = ""
+DEFAULT_FLATFILE_LOCATION = ""
+
+
+def resolve_data_locations(config: Mapping[str, Any]) -> tuple[str, str]:
+    configs_section = config.get("configs", {}) if isinstance(config, Mapping) else {}
+    if not isinstance(configs_section, Mapping):
+        return DEFAULT_FLATFILE_LOCATION, DEFAULT_OUTPUT_LOCATION
+
+    flatfile_location = str(
+        configs_section.get("flatfile_location")
+        or configs_section.get("flatfile_bucket")
+        or DEFAULT_FLATFILE_LOCATION
+    )
+    output_location = str(
+        configs_section.get("output_location")
+        or configs_section.get("output_bucket")
+        or DEFAULT_OUTPUT_LOCATION
+    )
+    return flatfile_location, output_location
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -17,6 +37,13 @@ def load_config(path: str | Path) -> dict[str, Any]:
     configs_section = config.setdefault("configs", {})
     configs_section.setdefault("schema", DEFAULT_SCHEMA)
     configs_section.setdefault("incremental_column", DEFAULT_INCREMENTAL_COLUMN)
+
+    flatfile_location, output_location = resolve_data_locations(config)
+    configs_section["flatfile_location"] = flatfile_location
+    configs_section["output_location"] = output_location
+    # Backwards-compat aliases used by older projects/generators.
+    configs_section.setdefault("flatfile_bucket", flatfile_location)
+    configs_section.setdefault("output_bucket", output_location)
 
     layers = config.get("layers", {}) or {}
     for layer_name in layers:

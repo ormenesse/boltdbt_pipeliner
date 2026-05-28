@@ -51,6 +51,12 @@
     .mermaid svg text {{
         fill: {mermaid_text};
     }}
+    .footnote {{
+      margin-top: 16px;
+      font-size: 11px;
+      color: {meta_text};
+      text-align: right;
+    }}
   </style>
 
   <!-- Highlight.js theme -->
@@ -119,6 +125,7 @@ config:
           </tbody>
         </table>
       </div>
+      <div class="footnote">Created by Bolt-Pipeliner</div>
     </div>
   </div>
 

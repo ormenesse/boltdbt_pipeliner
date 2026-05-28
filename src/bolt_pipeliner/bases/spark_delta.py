@@ -1,6 +1,8 @@
 import datetime as dt
 import logging
 
+from bolt_pipeliner.bases._io import detect_file_format, resolve_data_path, to_pandas_path, to_spark_path
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -9,7 +11,7 @@ class ETLBaseDelta:
     ETL base for Spark on Synapse using Delta tables only.
 
     Rules:
-      - flatfile: read CSVs/Parquet from <bucket>/<path>
+      - flatfile: read CSV/Parquet/Excel/JSON from <bucket>/<path>
       - bronze: full SQL (e.g. "SELECT * FROM `esm`.`invoice`") or catalog.table
       - else: read tables from <save_catalog>.<table>
       - writes: Delta to output_table
@@ -50,6 +52,40 @@ class ETLBaseDelta:
         self._write_table = self.save_catalog + "." + self.layer + "_" + self.output_table_name
         self.table_exists = self._table_exists(self._write_table)
 
+    def _read_excel(self, path: str):
+        import pandas as pd
+
+        excel_path = to_pandas_path(path)
+        pdf = pd.read_excel(excel_path)
+        return self.spark.createDataFrame(pdf)
+
+    def _read_flatfile_source(self, source: str):
+        path = to_spark_path(resolve_data_path(source, self.bucket))
+        file_format = detect_file_format(path)
+
+        if file_format == "csv":
+            return self.spark.read.csv(
+                path,
+                header=True,
+                inferSchema=True,
+                multiLine=True,
+                escape='"',
+                quote='"',
+            )
+        if file_format == "parquet":
+            return self.spark.read.parquet(path)
+        if file_format == "json":
+            return self.spark.read.option("multiLine", True).json(path)
+        if file_format == "jsonl":
+            return self.spark.read.json(path)
+        if file_format == "excel":
+            return self._read_excel(path)
+
+        raise ValueError(
+            f"Unsupported input format for '{source}'. Supported flatfile formats: "
+            ".csv, .parquet, .xlsx/.xls, .json, .jsonl/.ndjson."
+        )
+
     def _table_exists(self, table_ident: str) -> bool:
         try:
             return self.spark.catalog.tableExists(table_ident)
@@ -86,23 +122,9 @@ class ETLBaseDelta:
             return
 
         if self.layer == "flatfile":
-            for key, rel_path in self.input_table_names.items():
-                if ".csv" in rel_path:
-                    self.input_tables[key] = self.spark.read.csv(
-                        f"{self.bucket}/{rel_path}",
-                        header=True,
-                        inferSchema=True,
-                        multiLine=True,
-                        escape='"',
-                        quote='"',
-                    )
-                elif ".parquet" in rel_path:
-                    self.input_tables[key] = self.spark.read.parquet(
-                        f"{self.bucket}/{rel_path}"
-                    )
-                else:
-                    print(f"{self.logging_string} - Could not flatfile - {rel_path}")
-                print(f"{self.logging_string} - Loaded flatfile - {rel_path}")
+            for key, source in self.input_table_names.items():
+                self.input_tables[key] = self._read_flatfile_source(source)
+                print(f"{self.logging_string} - Loaded flatfile - {source}")
             return
 
         if self.layer == "bronze":

@@ -1,6 +1,6 @@
 configs:
-  output_bucket: outputs/tables
-  flatfile_bucket: data/raw
+  output_location: data/layers
+  flatfile_location: data/raw
   schema: demo_spark
   catalog: demo_spark_local
   incremental_column: year_month

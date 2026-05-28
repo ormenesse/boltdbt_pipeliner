@@ -5,6 +5,7 @@ import yaml
 import sys
 import os
 
+from bolt_pipeliner.config import resolve_data_locations
 from bolt_pipeliner.generators._paths import ETL_BASE_SOURCE, PACKAGE_ROOT, TEMPLATES_DOCS
 from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 
@@ -48,8 +49,9 @@ div.jp-OutputArea-output pre {
     notebook.cells.append(new_code_cell(source=f"# etl_base.py\n{etl_base_code}"))
     
     # Bucket configuration
-    bucket_config = f'''flatfile_bucket = f"{config["configs"]["flatfile_bucket"]}"
-output_bucket = f"{config["configs"]["output_bucket"]}"'''
+    flatfile_location, output_location = resolve_data_locations(config)
+    bucket_config = f'''flatfile_bucket = f"{flatfile_location}"
+output_bucket = f"{output_location}"'''
     notebook.cells.append(new_code_cell(bucket_config))
 
 

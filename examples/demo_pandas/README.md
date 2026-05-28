@@ -18,4 +18,4 @@ bolt run --config configs/etl_config.yaml
 bolt test --config configs/etl_config.yaml
 ```
 
-Outputs land in `outputs/tables/`, and model artifacts land in `outputs/models/collision_injury_logreg_pandas/`.
+Layer outputs land in `data/layers/`, and model artifacts land in `outputs/models/collision_injury_logreg_pandas/`.

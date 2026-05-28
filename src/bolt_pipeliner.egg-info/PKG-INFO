@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: bolt_pipeliner
-Version: 0.2.3
+Version: 0.2.5
 Summary: Config-driven ETL framework for Spark, Pandas, and Polars.
 Author: Vinicius Ormenesse
 License-Expression: Apache-2.0
@@ -132,6 +132,8 @@ The wizard asks:
 | Architecture | flat • medallion (bronze/silver/gold) • diamond (bronze/silver/gold/diamond) • custom |
 | Engine | pyspark • pandas • polars |
 | Spark profile (pyspark only) | local • databricks • emr • glue • gcp • azure • k8s |
+| Output location | URI/path for generated layer outputs (local default `data/layers`; cloud defaults ship prefilled prefixes like `s3://<bucket>/<path>/...`) |
+| Flatfile location | URI/path for inbound flatfiles (local default `data/flatfiles`; cloud defaults ship prefilled prefixes like `gs://<bucket>/<path>/...`) |
 | Execution env | terminal • notebook • airflow • databricks-jobs |
 | ML training layer | yes / no (when yes, also offers to add a `diamond` layer if missing) |
 
@@ -263,12 +265,12 @@ Selection respects YAML layer order: flatfile → bronze → silver → gold →
 
 ```yaml
 configs:
-  output_bucket: "s3://my_project/tables/"
-  flatfile_bucket: "s3://my_project/flatfiles/"
+  output_location: "data/layers"
+  flatfile_location: "data/flatfiles"
   schema: my_project          # destination schema (Iceberg namespace, Snowflake schema, …)
   catalog: dev_catalog        # destination catalog for non-bronze reads/writes
   incremental_column: year_month   # optional; default "year_month" for Iceberg
-                                   # base, "yearMonth" for Pandas/Polars bases
+                                    # base, "yearMonth" for Pandas/Polars bases
 
 layers:
   flatfile: etl/_flatfile
@@ -301,6 +303,17 @@ silver:
       - freshness: { column: year_month, max_age_days: 90 }
 ```
 
+`output_bucket` / `flatfile_bucket` are still accepted as legacy aliases; they map to
+`output_location` / `flatfile_location` automatically at load time.
+
+### Storage locations and flatfile formats
+
+- `output_location` and `flatfile_location` accept local paths or cloud URIs (`s3://`, `gs://`, `abfss://`, `dbfs:/`, etc.).
+- `bolt init` defaults local projects to `data/layers` + `data/flatfiles`; cloud Spark profiles default to scheme-prefixed placeholders so you only fill bucket/container/path.
+- Flatfile `input_tables` entries are resolved relative to `flatfile_location` when you pass a relative path.
+- Pandas and Polars parquet bases support `.csv`, `.parquet`, Excel (`.xlsx`/`.xls`/etc.), and JSON (`.json`, `.jsonl`, `.ndjson`).
+- JSON flatfiles in the Pandas/Polars parquet bases are loaded with `pd.json_normalize` semantics to flatten nested payloads.
+
 ### Per-job keys
 
 | Key | Required | Notes |
@@ -325,9 +338,9 @@ Five sibling base classes ship in `bolt_pipeliner.bases.*`. They expose the same
 |---|---|---|---|
 | `ETLBase` (default) | PySpark | Iceberg (Glue) | Large-scale ETL with ACID Iceberg tables. |
 | `ETLBaseDelta` | PySpark | Delta (Synapse) | Synapse / Databricks Delta lake. |
-| `ETLBaseParquet` | PySpark | Parquet on S3 | Spark without a metastore. |
-| `ETLBaseParquetPandas` | Pandas + PyArrow | Parquet | Notebook / single-node ETL. |
-| `ETLBaseParquetPolars` | Polars + PyArrow | Parquet | Single-node ETL with Polars ergonomics. |
+| `ETLBaseParquet` | PySpark | Parquet on configurable URI/path | Spark without a metastore. |
+| `ETLBaseParquetPandas` | Pandas + PyArrow | Parquet on configurable URI/path | Notebook / single-node ETL. |
+| `ETLBaseParquetPolars` | Polars + PyArrow | Parquet on configurable URI/path | Single-node ETL with Polars ergonomics. |
 
 Engines are imported **lazily**: importing `bolt_pipeliner` does not pull in PySpark / Polars / Pandas. Engine modules are loaded only when a job actually instantiates one. You can therefore run a pure-Pandas project without installing PySpark.
 
@@ -475,6 +488,8 @@ results          # rendered inline as HTML
 | `all` | (all of the above) | |
 
 The generators read templates from the package (`src/bolt_pipeliner/templates/`). Airflow DAGs include cloud-specific operator skeletons, but you still provide environment values (for example application IDs, cluster names, image URIs, connection IDs).
+
+Every generated documentation page includes the footnote: `Created by Bolt-Pipeliner`.
 
 ### Smart dependency resolution
 

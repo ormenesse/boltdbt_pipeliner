@@ -35,7 +35,7 @@ class LocalPandasParquetBase:
         self.year_months = None
         self.logging_string = f"{layer} {output_table_name}"
         self.input_root = Path(bucket)
-        self.output_root = Path("outputs/tables") if layer == "flatfile" else Path(bucket)
+        self.output_root = Path("data/layers") if layer == "flatfile" else Path(bucket)
         self.table_path = self.output_root / f"{layer}_{output_table_name}.parquet"
 
     def check_if_tables_exists_find_yearmonths(self):

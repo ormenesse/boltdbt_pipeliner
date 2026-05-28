@@ -52,6 +52,13 @@
     }}
     aside nav {{ font-size: 12px; }}
     nav li a {{ padding: 6px 8px; line-height: 1.25; }}
+    .footnote {{
+      padding: 8px 12px 14px;
+      font-size: 11px;
+      color: #64748b;
+      border-top: 1px solid var(--border);
+      margin-top: 10px;
+    }}
   </style>
 </head>
 <body>
@@ -71,6 +78,7 @@
           {NAV_ITEMS}
         </ul>
       </nav>
+      <div class="footnote">Created by Bolt-Pipeliner</div>
     </aside>
     <main>
       <!-- <div class="toolbar">

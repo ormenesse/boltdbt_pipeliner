@@ -1,6 +1,8 @@
 from bolt_pipeliner.config.loader import (
     DEFAULT_CLASS_NAME,
+    DEFAULT_FLATFILE_LOCATION,
     DEFAULT_INCREMENTAL_COLUMN,
+    DEFAULT_OUTPUT_LOCATION,
     DEFAULT_SCHEMA,
     load_config,
     normalize_job,
@@ -23,6 +25,8 @@ def test_loader_applies_defaults_when_missing(write_config):
 
     assert config["configs"]["schema"] == DEFAULT_SCHEMA
     assert config["configs"]["incremental_column"] == DEFAULT_INCREMENTAL_COLUMN
+    assert config["configs"]["flatfile_location"] == DEFAULT_FLATFILE_LOCATION
+    assert config["configs"]["output_location"] == DEFAULT_OUTPUT_LOCATION
     assert config["bronze"][0]["class_name"] == DEFAULT_CLASS_NAME
 
 
@@ -42,6 +46,42 @@ def test_loader_preserves_user_set_schema(write_config):
 
     assert config["configs"]["schema"] == "my_schema"
     assert config["configs"]["incremental_column"] == "yearMonth"
+
+
+def test_loader_maps_legacy_bucket_keys_to_new_location_keys(write_config):
+    path = write_config(
+        """
+        configs:
+          flatfile_bucket: s3://raw-data/flatfiles/
+          output_bucket: s3://warehouse/tables/
+        layers:
+          bronze: etl/0_bronze
+        bronze: []
+        """
+    )
+
+    config = load_config(path)
+
+    assert config["configs"]["flatfile_location"] == "s3://raw-data/flatfiles/"
+    assert config["configs"]["output_location"] == "s3://warehouse/tables/"
+
+
+def test_loader_maps_new_location_keys_to_legacy_aliases(write_config):
+    path = write_config(
+        """
+        configs:
+          flatfile_location: data/flatfiles
+          output_location: outputs/tables
+        layers:
+          bronze: etl/0_bronze
+        bronze: []
+        """
+    )
+
+    config = load_config(path)
+
+    assert config["configs"]["flatfile_bucket"] == "data/flatfiles"
+    assert config["configs"]["output_bucket"] == "outputs/tables"
 
 
 def test_normalize_renames_peco_input_tables_key():

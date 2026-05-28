@@ -1,10 +1,17 @@
 import datetime as dt
+import json
 import logging
 from typing import Any, Dict, Iterable, Optional
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
+
+from bolt_pipeliner.bases._io import (
+    detect_file_format,
+    has_uri_scheme,
+    resolve_data_path,
+)
 
 try:
     import fsspec
@@ -18,7 +25,7 @@ class ETLBaseParquetPandas:
     """
     Pandas/pyarrow ETL base:
       - No Spark or SQL.
-      - Input: CSV or Parquet (local or S3 paths).
+      - Input: CSV, Parquet, Excel, or JSON (local paths or cloud URIs).
       - Output: Parquet (optionally partitioned).
       - Incremental: process only the last 3 months if an existing output dataset already exists.
     """
@@ -43,8 +50,10 @@ class ETLBaseParquetPandas:
         self.output_table_name = output_table_name
         self.bucket = bucket
         self.input_tables: Dict[str, pd.DataFrame] = {}
-        base = f"{bucket}/" if bucket else ""
-        self.dataset_path = f"{base}{self.layer}_{self.output_table_name}"
+        self.dataset_path = resolve_data_path(
+            f"{self.layer}_{self.output_table_name}",
+            bucket,
+        )
         if self.layer == "flatfile":
             self.dataset_path = self.dataset_path.replace("flat_files", "data")
 
@@ -56,6 +65,41 @@ class ETLBaseParquetPandas:
         self.unload = unload
         self.storage_options = storage_options or {}
         self.incremental_column = incremental_column or self.DEFAULT_INCREMENTAL_COLUMN
+
+    def _read_json_normalized(self, path: str, *, lines: bool) -> pd.DataFrame:
+        if lines:
+            records: list[dict[str, Any]] = []
+            if has_uri_scheme(path) and fsspec is not None:
+                opener = fsspec.open(path, mode="rt", **self.storage_options)
+            else:
+                opener = open(path, "r", encoding="utf-8")
+
+            with opener as f:
+                for line in f:
+                    if line.strip():
+                        records.append(json.loads(line))
+
+            return pd.json_normalize(records)
+
+        if has_uri_scheme(path) and fsspec is not None:
+            opener = fsspec.open(path, mode="rt", **self.storage_options)
+        else:
+            opener = open(path, "r", encoding="utf-8")
+
+        with opener as f:
+            payload = json.load(f)
+
+        return pd.json_normalize(payload)
+
+    def _read_excel(self, path: str) -> pd.DataFrame:
+        try:
+            return pd.read_excel(path, storage_options=self.storage_options)
+        except TypeError:
+            return pd.read_excel(path)
+
+    def _resolve_input_path(self, source: str) -> str:
+        default_extension = ".parquet" if self.layer != "flatfile" else None
+        return resolve_data_path(source, self.bucket, default_extension=default_extension)
 
     def _fs_exists(self, path: str) -> bool:
         if fsspec is None:
@@ -107,22 +151,26 @@ class ETLBaseParquetPandas:
         if not self.input_table_names:
             return
 
-        for key, path in self.input_table_names.items():
-            if (
-                not (
-                    path.startswith("s3://")
-                    or path.startswith("/")
-                    or path.endswith(".csv")
-                    or path.endswith(".parquet")
-                )
-                and self.bucket
-            ):
-                path = f"s3://{self.bucket}/{path}"
+        for key, source in self.input_table_names.items():
+            path = self._resolve_input_path(source)
+            file_format = detect_file_format(path)
 
-            if path.lower().endswith(".csv"):
+            if file_format == "csv":
                 df = pd.read_csv(path, storage_options=self.storage_options)
-            else:
+            elif file_format == "parquet":
                 df = pd.read_parquet(path, storage_options=self.storage_options)
+            elif file_format == "excel":
+                df = self._read_excel(path)
+            elif file_format == "json":
+                df = self._read_json_normalized(path, lines=False)
+            elif file_format == "jsonl":
+                df = self._read_json_normalized(path, lines=True)
+            else:
+                raise ValueError(
+                    f"Unsupported input format for '{source}'. Supported flatfile formats: "
+                    ".csv, .parquet, .xlsx/.xls, .json, .jsonl/.ndjson."
+                )
+
             self.input_tables[key] = df
             logging.info(f"{self.logging_string} - Loaded - {key} from {path}")
 

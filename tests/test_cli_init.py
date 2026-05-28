@@ -3,7 +3,13 @@ import sys
 
 import pytest
 
-from bolt_pipeliner.cli.init import VENDOR_DIRNAME, _preset_answers, _scaffold, execute
+from bolt_pipeliner.cli.init import (
+    VENDOR_DIRNAME,
+    _default_data_locations,
+    _preset_answers,
+    _scaffold,
+    execute,
+)
 
 
 def test_minimal_preset_produces_pandas_flatfile_project(tmp_path):
@@ -146,8 +152,38 @@ def test_flatfile_example_documents_file_path_inputs(tmp_path):
     flatfile = (target / "etl" / "_flatfile" / "flatfile_example.py").read_text(encoding="utf-8")
     # Flatfile values are file paths, not table names — that's the key
     # confusion the layer-specific note exists to resolve.
-    assert "flatfile_bucket" in flatfile
+    assert "flatfile_location" in flatfile
     assert ".csv" in flatfile
+
+
+def test_init_config_uses_location_keys_with_local_defaults(tmp_path):
+    target = tmp_path / "demo"
+    execute("demo", target_dir=target, preset="minimal")
+    config = (target / "configs" / "etl_config.yaml").read_text(encoding="utf-8")
+
+    assert "output_location:" in config
+    assert "flatfile_location:" in config
+    assert 'output_location: "data/layers"' in config
+    assert 'flatfile_location: "data/flatfiles"' in config
+
+
+def test_default_cloud_locations_preconfigure_prefix_with_path_placeholder():
+    output, flatfile = _default_data_locations("pyspark", "emr", "demo")
+    assert output == "s3://<bucket>/<path>/layers/"
+    assert flatfile == "s3://<bucket>/<path>/flatfiles/"
+
+    output, flatfile = _default_data_locations("pyspark", "gcp", "demo")
+    assert output.startswith("gs://")
+    assert "<path>" in output
+    assert flatfile.startswith("gs://")
+
+    output, flatfile = _default_data_locations("pyspark", "azure", "demo")
+    assert output.startswith("abfss://")
+    assert "<path>" in output
+
+    output, flatfile = _default_data_locations("pyspark", "databricks", "demo")
+    assert output.startswith("dbfs:/")
+    assert "<path>" in output
 
 
 def test_polars_example_imports_polars_not_pyspark(tmp_path):

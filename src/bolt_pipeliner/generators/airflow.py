@@ -9,6 +9,7 @@ from bolt_pipeliner.generators._paths import (
     TEMPLATES_AIRFLOW,
     TEMPLATES_DOCS,
 )
+from bolt_pipeliner.config import resolve_data_locations
 from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 
 
@@ -166,9 +167,10 @@ def extract_config_values(config: Dict) -> tuple:
     """Extract bucket and schema configuration values."""
     layers = config['layers']
     configs = config['configs']
+    flatfile_location, output_location = resolve_data_locations(config)
     return (
-        configs['flatfile_bucket'],
-        configs['output_bucket'], 
+        flatfile_location,
+        output_location,
         configs['schema'],
         layers
     )

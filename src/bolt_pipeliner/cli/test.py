@@ -7,7 +7,7 @@ import types
 from pathlib import Path
 from typing import Optional
 
-from bolt_pipeliner.config import load_config
+from bolt_pipeliner.config import load_config, resolve_data_locations
 from bolt_pipeliner.runner import _module_import_path, _resolve_base_class
 from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 from bolt_pipeliner.testing.runner import run_checks
@@ -24,8 +24,7 @@ def execute(
     save_catalog = configs_section.get("catalog", "dev_catalog")
     fixed_schema = configs_section.get("schema")
     incremental_column = configs_section.get("incremental_column")
-    flatfile_bucket = configs_section.get("flatfile_bucket", "")
-    output_bucket = configs_section.get("output_bucket", "")
+    flatfile_location, output_location = resolve_data_locations(config)
     layer_paths: dict[str, str] = config.get("layers", {}) or {}
 
     layers_to_run = [layer] if layer else list(layer_paths.keys())
@@ -63,7 +62,7 @@ def execute(
 
             init_kwargs = dict(
                 layer=stage,
-                bucket=flatfile_bucket if stage == "flatfile" else output_bucket,
+                bucket=flatfile_location if stage == "flatfile" else output_location,
                 input_tables=job["input_tables"],
                 output_table_name=job["output_table_name"],
                 partition_by=job.get("partition_by", []),

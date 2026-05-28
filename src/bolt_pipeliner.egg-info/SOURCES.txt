@@ -11,6 +11,7 @@ src/bolt_pipeliner.egg-info/entry_points.txt
 src/bolt_pipeliner.egg-info/requires.txt
 src/bolt_pipeliner.egg-info/top_level.txt
 src/bolt_pipeliner/bases/__init__.py
+src/bolt_pipeliner/bases/_io.py
 src/bolt_pipeliner/bases/pandas_parquet.py
 src/bolt_pipeliner/bases/polars_parquet.py
 src/bolt_pipeliner/bases/spark_delta.py
@@ -55,6 +56,7 @@ tests/test_data_checks.py
 tests/test_generators_paths.py
 tests/test_notebook_generator.py
 tests/test_package_imports_lazily.py
+tests/test_pandas_parquet_base.py
 tests/test_runner.py
 tests/test_selection.py
 tests/test_spark_profiles.py

@@ -25,6 +25,8 @@ bolt generate documentation
 
 (Some examples (for example `demo_spark/`, `demo_pandas/`, and `demo_polars/`) run fully local. Larger reference projects may reference S3 paths and require real credentials.)
 
+The local demos use `configs.output_location: data/layers` and `configs.flatfile_location: data/raw`.
+
 ## Starting fresh
 
 If you want a clean scaffold rather than adapting one of these, run:

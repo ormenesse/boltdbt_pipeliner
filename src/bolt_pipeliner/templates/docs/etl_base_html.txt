@@ -52,6 +52,7 @@
         fill: #111111;
     }}
     .kv {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; color:#334155; }}
+    .footnote {{ margin-top: 16px; font-size: 11px; color: #94a3b8; text-align: right; }}
   </style>
 
   <!-- Highlight.js theme -->
@@ -163,6 +164,7 @@ flowchart TD
           <tr><th>Bronze behavior</th><td>When an input name contains a dot (<span class="kv">schema.table</span>), reading is done via <span class="kv">spark.sql</span> against the original <span class="kv">catalog</span> to preserve legacy behavior.</td></tr>
         </tbody>
       </table>
+      <div class="footnote">Created by Bolt-Pipeliner</div>
 
     </div>
   </div>

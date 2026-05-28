@@ -5,6 +5,7 @@ import sys
 import os
 import logging
 
+from bolt_pipeliner.config import resolve_data_locations
 from bolt_pipeliner.generators._paths import ETL_BASE_SOURCE, PACKAGE_ROOT, TEMPLATES_DOCS
 
 # Constants
@@ -375,8 +376,7 @@ def create_layer_scripts(config_path: str, target_layers: Optional[List[str]] = 
     etl_base_code = _load_etl_base_code()
     
     # Extract configuration values
-    flatfile_bucket = config['configs']['flatfile_bucket']
-    output_bucket = config['configs']['output_bucket']
+    flatfile_bucket, output_bucket = resolve_data_locations(config)
     layers = config['layers']
     
     # Filter layers if specific ones are requested

@@ -46,7 +46,18 @@ def load_yaml_config(path: str) -> Dict[str, Any]:
 
 def determine_node_layer(node_name: str, config: Dict[str, Any]) -> str:
     """Determine the layer for a given node name."""
-    if any(ext in node_name for ext in ['csv', 'xlsx']):
+    if any(
+        ext in node_name.lower()
+        for ext in [
+            '.csv',
+            '.parquet',
+            '.xlsx',
+            '.xls',
+            '.json',
+            '.jsonl',
+            '.ndjson',
+        ]
+    ):
         return 'flatfile'
     
     first_part = node_name.split("_")[0]

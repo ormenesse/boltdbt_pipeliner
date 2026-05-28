@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-05-28
+
+### Added
+- Config location normalizer (`resolve_data_locations`) and path helpers to support local paths plus cloud URIs consistently across bases, runner, tests, and generators.
+- Flatfile format support expanded beyond CSV/Parquet:
+  - Pandas and Polars parquet bases now support Excel (`.xlsx`, `.xls`, etc.) and JSON (`.json`, `.jsonl`, `.ndjson`).
+  - JSON inputs are loaded using `pd.json_normalize` semantics for nested payload flattening.
+- Documentation pages now include a footer note: `Created by Bolt-Pipeliner` (index, table pages, and ETL base page).
+
+### Changed
+- `bolt init` now scaffolds with configurable storage roots using `configs.output_location` and `configs.flatfile_location`.
+- Default `bolt init` locations were updated:
+  - Local projects default to `data/layers` (outputs) and `data/flatfiles` (inputs).
+  - Cloud Spark profiles (S3/GCS/ABFSS/DBFS) default to prefilled URI prefixes with path placeholders (for example `<bucket>/<path>`).
+- Backward compatibility preserved: legacy `output_bucket` / `flatfile_bucket` keys are still accepted and auto-mapped.
+- Spark Iceberg/Delta/Parquet bases now read CSV/Parquet/Excel/JSON flatfiles from configurable locations instead of S3-only assumptions.
+- `bolt run`, `bolt test`, notebook generation, Airflow generation, and layer script generation now resolve input/output roots through the new location mapping.
+- Documentation lineage node-layer detection now recognizes additional flatfile extensions (`.parquet`, `.xls`, `.json`, `.jsonl`, `.ndjson`).
+- README updated for new init prompts/defaults, location keys, supported formats, and documentation footer behavior.
+- Examples updated to the new config keys (`output_location` / `flatfile_location`) and local output root (`data/layers`).
+
 ## [0.2.3] - 2026-05-27
 
 ### Added
@@ -54,7 +75,8 @@ Notebook generation spark configuration.
 - The scaffolder's "Next steps" message now points at `python main.py --help` / `python generate.py documentation` when vendoring is enabled.
 - Added `Topic :: Scientific/Engineering :: Information Analysis` and `Intended Audience :: Information Technology` classifiers.
 
-[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.5
 [0.2.3]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.3
 [0.2.2]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.2
 [0.2.0]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.0

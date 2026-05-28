@@ -5,7 +5,7 @@ import types
 from pathlib import Path
 from typing import Any, Iterable
 
-from bolt_pipeliner.config import load_config
+from bolt_pipeliner.config import load_config, resolve_data_locations
 from bolt_pipeliner.selection import select as select_jobs
 from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 
@@ -72,8 +72,7 @@ def run(
 
     config = load_config(config_path)
     configs_section = config.get("configs", {})
-    flatfile_bucket = configs_section.get("flatfile_bucket", "")
-    output_bucket = configs_section.get("output_bucket", "")
+    flatfile_location, output_location = resolve_data_locations(config)
     save_catalog = configs_section.get("catalog", "dev_catalog")
     fixed_schema = configs_section.get("schema")
     incremental_column = configs_section.get("incremental_column")
@@ -115,7 +114,7 @@ def run(
         module = importlib.import_module(module_path)
 
         base_cls = _resolve_base_class(job.get("class_name", "ETLBase"))
-        bucket = flatfile_bucket if stage == "flatfile" else output_bucket
+        bucket = flatfile_location if stage == "flatfile" else output_location
 
         etl = base_cls(
             spark=spark,
