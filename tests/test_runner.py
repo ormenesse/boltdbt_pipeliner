@@ -1,5 +1,6 @@
 import pytest
 import yaml
+from types import SimpleNamespace
 
 from bolt_pipeliner.runner import (
     _BUILTIN_BASE_MODULES,
@@ -128,3 +129,135 @@ def test_run_uses_resolved_spark_profile_for_session_creation(tmp_path, monkeypa
 
     assert captured["profile"] == "local"
     assert captured["spark_config"]["spark.sql.shuffle.partitions"] == "33"
+
+
+def test_run_imports_modules_relative_to_config_project_root(tmp_path, monkeypatch):
+    project = tmp_path / "demo"
+    config_path = project / "configs" / "etl_config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "configs": {
+                    "output_location": "data/layers",
+                    "flatfile_location": "data/raw",
+                },
+                "layers": {"flatfile": "etl/_flatfile"},
+                "flatfile": [
+                    {
+                        "module": "flatfile_job",
+                        "input_tables": {},
+                        "output_table_name": "out",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    job_module = project / "etl" / "_flatfile" / "flatfile_job.py"
+    job_module.parent.mkdir(parents=True, exist_ok=True)
+    (job_module.parent / "__init__.py").write_text("", encoding="utf-8")
+    job_module.write_text(
+        "def process_data(self, input_tables):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+
+    monkeypatch.setattr(
+        "bolt_pipeliner.runner.resolve_spark_profile",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            profile="local", spark_config={}, path=None
+        ),
+    )
+    monkeypatch.setattr(
+        "bolt_pipeliner.sessions.create_session",
+        lambda *_args, **_kwargs: object(),
+    )
+
+    class _DummyBase:
+        instances = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            _DummyBase.instances.append(self)
+
+        def run(self):
+            return None
+
+    monkeypatch.setattr("bolt_pipeliner.runner._resolve_base_class", lambda _name: _DummyBase)
+
+    run(config_path)
+    assert _DummyBase.instances
+
+
+def test_run_passes_job_incremental_overrides(tmp_path, monkeypatch):
+    project = tmp_path / "demo"
+    config_path = project / "configs" / "etl_config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "configs": {
+                    "output_location": "data/layers",
+                    "flatfile_location": "data/raw",
+                    "incremental_column": "year_month",
+                    "incremental_type": "int",
+                    "incremental_unit": 5,
+                    "incremental_date_grain": "monthly",
+                },
+                "layers": {"silver": "etl/1_silver"},
+                "silver": [
+                    {
+                        "module": "silver_job",
+                        "input_tables": {},
+                        "output_table_name": "out",
+                        "incremental": True,
+                        "incremental_column": "anomes",
+                        "incremental_type": "int",
+                        "incremental_unit": 2,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    job_module = project / "etl" / "1_silver" / "silver_job.py"
+    job_module.parent.mkdir(parents=True, exist_ok=True)
+    (job_module.parent / "__init__.py").write_text("", encoding="utf-8")
+    job_module.write_text(
+        "def process_data(self, input_tables):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "bolt_pipeliner.runner.resolve_spark_profile",
+        lambda *_args, **_kwargs: SimpleNamespace(profile="local", spark_config={}, path=None),
+    )
+    monkeypatch.setattr("bolt_pipeliner.sessions.create_session", lambda *_a, **_k: object())
+
+    class _DummyBase:
+        instances = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            _DummyBase.instances.append(self)
+
+        def run(self):
+            return None
+
+    monkeypatch.setattr("bolt_pipeliner.runner._resolve_base_class", lambda _name: _DummyBase)
+
+    run(config_path)
+
+    assert len(_DummyBase.instances) == 1
+    kwargs = _DummyBase.instances[0].kwargs
+    assert kwargs["incremental_column"] == "anomes"
+    assert kwargs["incremental_type"] == "int"
+    assert kwargs["incremental_unit"] == 2
+    assert kwargs["incremental_date_grain"] == "monthly"

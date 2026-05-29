@@ -18,7 +18,7 @@ etl/
 ## What it shows
 
 - A single `silver` job aggregating two upstream flatfile inputs (`cpi`, `gas`) into a monthly fact table.
-- `incremental: true` with `partition_by: [year_month]` — the Iceberg base only rewrites the last three monthly partitions on each run.
+- `incremental: true` with configurable policy keys (`incremental_column`, `incremental_type`, `incremental_unit`, `incremental_date_grain`) — this demo keeps `year_month` as the incremental column and overrides the silver job to refresh the latest 2 values per run.
 - A `tests:` block on the silver job (`not_null`, `unique`, `row_count`, `freshness`) — `bolt test` runs them after `process_data`.
 - A `class_name: ETLBase` declaration on every job — the default Spark+Iceberg base.
 

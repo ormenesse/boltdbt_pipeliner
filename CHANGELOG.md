@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Documentation templates for generated table pages were refreshed and aligned with `configs/style_config.yaml`:
+  - `etl_base_html.txt` now uses style placeholders instead of hardcoded colors and reflects the current generic incremental policy (`incremental_column`, `incremental_type`, `incremental_unit`, `incremental_date_grain`).
+  - `mermaid_page.txt` was visually updated (layout, code panel, lineage panel, schema section) and now consistently uses the style-config color tokens.
+- Local example base classes were updated to match framework incremental behavior (not hardcoded `year_month` partition logic):
+  - `examples/demo_spark/bases/local_spark_parquet.py`
+  - `examples/demo_pandas/bases/local_pandas_parquet.py`
+  - `examples/demo_polars/bases/local_polars_parquet.py`
+
+### Fixed
+- `bolt generate documentation` no longer fails in `demo_pandas` and `demo_polars` due to missing `configs.catalog`; both example configs now include explicit local catalog values.
+- Example READMEs/configs were synchronized with current incremental + verbose conventions, and all demo projects were regenerated with `bolt generate all` (documentation, notebook, airflow, and layers outputs).
+
 ## [0.2.5] - 2026-05-28
 
 ### Added
@@ -14,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Flatfile format support expanded beyond CSV/Parquet:
   - Pandas and Polars parquet bases now support Excel (`.xlsx`, `.xls`, etc.) and JSON (`.json`, `.jsonl`, `.ndjson`).
   - JSON inputs are loaded using `pd.json_normalize` semantics for nested payload flattening.
+- New incremental policy engine shared by all built-in bases with configurable modes (`window`, `append`, `overwrite`) and typed incremental columns (`int` or `date`).
 - Documentation pages now include a footer note: `Created by Bolt-Pipeliner` (index, table pages, and ETL base page).
 
 ### Changed
@@ -24,9 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Backward compatibility preserved: legacy `output_bucket` / `flatfile_bucket` keys are still accepted and auto-mapped.
 - Spark Iceberg/Delta/Parquet bases now read CSV/Parquet/Excel/JSON flatfiles from configurable locations instead of S3-only assumptions.
 - `bolt run`, `bolt test`, notebook generation, Airflow generation, and layer script generation now resolve input/output roots through the new location mapping.
+- `bolt run` and `bolt test` now infer and prepend the project root to `sys.path` from `--config`, fixing `ModuleNotFoundError: No module named 'etl'` when invoked via installed console scripts.
+- `bolt run` now accepts `--verbose` / `-v` to print each resolved job/module while executing.
+- Incremental behavior is now configurable globally (`configs.incremental_*`) and per job (`incremental_*` overrides):
+  - `incremental_unit: -1`/`overwrite` → full overwrite.
+  - `incremental_unit: 0`/`append` → append only unseen incremental-column values.
+  - `incremental_unit: N` → refresh last `N` existing incremental values plus newer incoming values.
+  - `incremental_type: date` validates yearly/monthly/daily granularity via `incremental_date_grain`.
 - Documentation lineage node-layer detection now recognizes additional flatfile extensions (`.parquet`, `.xls`, `.json`, `.jsonl`, `.ndjson`).
 - README updated for new init prompts/defaults, location keys, supported formats, and documentation footer behavior.
-- Examples updated to the new config keys (`output_location` / `flatfile_location`) and local output root (`data/layers`).
+- Examples updated to the new config keys (`output_location` / `flatfile_location`), local output root (`data/layers`), and root incremental settings.
 
 ## [0.2.3] - 2026-05-27
 
@@ -58,7 +79,7 @@ Notebook generation spark configuration.
 - **`configs/style_config.yaml` is now always scaffolded** with a per-project color palette matching the chosen layers. `bolt generate documentation` requires this file, so the scaffold flow is no longer broken on fresh projects.
 - **ML scaffolding.** When the user enables the ML training layer (or uses `--preset diamond`), `bolt init` now emits a `model_notebooks/` directory alongside `models/` with an engine-aware `train_example.ipynb` and a README that documents the MLflow experiment-tracking + model-registry quickstart.
 - Diamond-layer hint: when ML is enabled but the chosen architecture has no `diamond` layer, the interactive wizard offers to add one (it's the conventional home for ML jobs downstream of `gold`).
-- **Tutorial-style layer examples.** `bolt init` now generates `<layer>_example.py` files with a teaching docstring rather than a three-line stub. Each example explains: `self` is the ETLBase instance and which attributes are wired on (`self.spark`, `self.year_months`, `self.partition_by`, `self._create_table`); `input_tables` is a *dict keyed by YAML aliases* (not file paths) pointing at preloaded DataFrames; the YAML → runtime mapping; and the return contract (`unload: true/false`). The "where do values come from?" note is tailored per layer (flatfile = file paths under `configs.flatfile_bucket`; bronze = shared vs. own catalog; silver/gold/diamond = upstream `<layer>_<output_table_name>`).
+- **Tutorial-style layer examples.** `bolt init` now generates `<layer>_example.py` files with a teaching docstring rather than a three-line stub. Each example explains: `self` is the ETLBase instance and which attributes are wired on (`self.spark`, `self.incremental_column`, `self.incremental_policy`, `self.partition_by`, `self._create_table`); `input_tables` is a *dict keyed by YAML aliases* (not file paths) pointing at preloaded DataFrames; the YAML → runtime mapping; and the return contract (`unload: true/false`). The "where do values come from?" note is tailored per layer (flatfile = file paths under `configs.flatfile_location`; bronze = shared vs. own catalog; silver/gold/diamond = upstream `<layer>_<output_table_name>`).
 - **dbt-style table selection for `bolt run`.** New `--select` / `-s` flag accepts:
   - `silver_orders` — just that job;
   - `+silver_orders` — upstream + target;

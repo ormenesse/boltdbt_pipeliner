@@ -7,6 +7,9 @@ import yaml
 
 DEFAULT_SCHEMA = "cxdw_dm"
 DEFAULT_INCREMENTAL_COLUMN = "year_month"
+DEFAULT_INCREMENTAL_TYPE = "int"
+DEFAULT_INCREMENTAL_UNIT = 3
+DEFAULT_INCREMENTAL_DATE_GRAIN = "monthly"
 DEFAULT_CLASS_NAME = "ETLBase"
 DEFAULT_OUTPUT_LOCATION = ""
 DEFAULT_FLATFILE_LOCATION = ""
@@ -37,6 +40,9 @@ def load_config(path: str | Path) -> dict[str, Any]:
     configs_section = config.setdefault("configs", {})
     configs_section.setdefault("schema", DEFAULT_SCHEMA)
     configs_section.setdefault("incremental_column", DEFAULT_INCREMENTAL_COLUMN)
+    configs_section.setdefault("incremental_type", DEFAULT_INCREMENTAL_TYPE)
+    configs_section.setdefault("incremental_unit", DEFAULT_INCREMENTAL_UNIT)
+    configs_section.setdefault("incremental_date_grain", DEFAULT_INCREMENTAL_DATE_GRAIN)
 
     flatfile_location, output_location = resolve_data_locations(config)
     configs_section["flatfile_location"] = flatfile_location

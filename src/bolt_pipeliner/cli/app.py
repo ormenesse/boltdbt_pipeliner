@@ -54,6 +54,12 @@ def run(
             "bare table names like 'orders' to '<layer>_orders'."
         ),
     ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Print each resolved job as it runs.",
+    ),
 ) -> None:
     """Run ETL jobs across the requested layers / selection."""
     layer_flags = {
@@ -73,7 +79,7 @@ def run(
         )
         raise typer.Exit(2)
 
-    run_cmd.execute(config, selected_layers, select=select, layer=layer)
+    run_cmd.execute(config, selected_layers, select=select, layer=layer, verbose=verbose)
 
 
 @app.command()

@@ -8,14 +8,21 @@ import pandas as pd
 from bolt_pipeliner.bases.pandas_parquet import ETLBaseParquetPandas
 
 
-def _make_base(layer: str, bucket: str, input_tables: dict[str, str]) -> ETLBaseParquetPandas:
+def _make_base(
+    layer: str,
+    bucket: str,
+    input_tables: dict[str, str],
+    **kwargs,
+) -> ETLBaseParquetPandas:
+    incremental = kwargs.pop("incremental", False)
     return ETLBaseParquetPandas(
         layer=layer,
         bucket=bucket,
         input_tables=input_tables,
         output_table_name="example",
         unload=False,
-        incremental=False,
+        incremental=incremental,
+        **kwargs,
     )
 
 
@@ -76,3 +83,61 @@ def test_load_data_normalizes_json_flatfiles(tmp_path):
     df = base.input_tables["src"]
     assert "meta.country" in df.columns
     assert df.iloc[0]["meta.country"] == "US"
+
+
+def test_incremental_append_mode_keeps_existing_and_only_adds_new_values(monkeypatch):
+    existing = pd.DataFrame({"anomes": [202401, 202402], "v": [1, 2]})
+    incoming = pd.DataFrame({"anomes": [202402, 202403], "v": [20, 3]})
+
+    base = _make_base(
+        "silver",
+        "outputs/tables",
+        {},
+        incremental=True,
+        incremental_column="anomes",
+        incremental_type="int",
+        incremental_unit="append",
+    )
+
+    monkeypatch.setattr(base, "_load_existing_dataset", lambda: existing)
+    captured: dict[str, pd.DataFrame] = {}
+
+    def _fake_write_dataset(**kwargs):
+        captured["df"] = kwargs["data"].to_pandas()
+
+    monkeypatch.setattr("bolt_pipeliner.bases.pandas_parquet.ds.write_dataset", _fake_write_dataset)
+
+    base.unload_data(incoming)
+
+    written = captured["df"].sort_values(["anomes", "v"]).reset_index(drop=True)
+    assert written["anomes"].tolist() == [202401, 202402, 202403]
+
+
+def test_incremental_window_mode_replaces_latest_values(monkeypatch):
+    existing = pd.DataFrame({"anomes": [202401, 202402, 202403], "v": [1, 2, 3]})
+    incoming = pd.DataFrame({"anomes": [202402, 202403, 202404], "v": [20, 30, 40]})
+
+    base = _make_base(
+        "silver",
+        "outputs/tables",
+        {},
+        incremental=True,
+        incremental_column="anomes",
+        incremental_type="int",
+        incremental_unit=2,
+    )
+
+    monkeypatch.setattr(base, "_load_existing_dataset", lambda: existing)
+    captured: dict[str, pd.DataFrame] = {}
+
+    def _fake_write_dataset(**kwargs):
+        captured["df"] = kwargs["data"].to_pandas()
+
+    monkeypatch.setattr("bolt_pipeliner.bases.pandas_parquet.ds.write_dataset", _fake_write_dataset)
+
+    base.unload_data(incoming)
+
+    written = captured["df"].sort_values(["anomes", "v"]).reset_index(drop=True)
+    assert written["anomes"].tolist() == [202401, 202402, 202403, 202404]
+    assert written.loc[written["anomes"] == 202402, "v"].iloc[0] == 20
+    assert written.loc[written["anomes"] == 202403, "v"].iloc[0] == 30

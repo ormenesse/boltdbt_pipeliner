@@ -5,209 +5,419 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>etl_base</title>
   <style>
-    body {{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, Helvetica; margin: 0; background:#353535ff; color: #500b3aff; }}
-    .wrap {{ padding: 24px; max-width: 1200px; margin: 0 auto; }}
-    .panel {{ background: #f7f7f7; border: 1px solid #ddd; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.35); padding: 16px; }}
-    h1 {{ margin: 0 0 8px; font-size: 30px; font-weight: 600; color: #d54e62ff;}}
-    h2 {{ margin: 5px 5px 8px 5px; font-size: 20px; font-weight: 600; color: #d54e62ff; border-bottom: 1px solid #1f2937; border-top: 1px solid #1f2937; padding-top: 8px; padding-bottom: 8px;}}
-    .meta {{ color: #94a3b8; font-size: 12px; }}
-    .info-table {{ width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }}
-    .info-table th, .info-table td {{ text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid #1f2937; }}
-    .info-table th {{ color: #d54e62ff; white-space: nowrap; width: 260px; }}
-    .info-table td {{ color: #555555; }}
-    .mermaid {{ margin-top: 16px; }}
-    a {{ color: #60a5fa; }}
+    :root {{
+      --bg: {body_background};
+      --text: {body_text};
+      --panel: {panel_background};
+      --border: {panel_border};
+      --shadow: {panel_shadow};
+      --accent: {heading_accent};
+      --rule: {rule_color};
+      --muted: {meta_text};
+      --cell: {table_cell_text};
+      --link: {link_text};
+      --btn: {btn_bg};
+      --btn-text: {btn_text};
+      --btn-hover: {btn_hover_bg};
+      --code-bg: {code_bg};
+      --code-border: {code_border};
+      --code-inset: {code_inset_highlight};
+      --fade-top: {fade_top};
+      --fade-mid: {fade_mid};
+      --fade-bottom: {fade_bottom};
+      --mermaid-text: {mermaid_text};
+      --mermaid-line: {mermaid_line};
+      --mermaid-tertiary: {mermaid_tertiary};
+    }}
 
-    /* Code highlight + toggle */
+    * {{ box-sizing: border-box; }}
+
+    body {{
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, Helvetica;
+      color: var(--text);
+      background: var(--bg);
+    }}
+
+    .wrap {{
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 24px;
+    }}
+
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px var(--shadow);
+      padding: 18px;
+      position: relative;
+      overflow: hidden;
+    }}
+
+    .panel::before {{
+      content: "";
+      position: absolute;
+      top: -130px;
+      right: -80px;
+      width: 280px;
+      height: 280px;
+      border-radius: 999px;
+      background: radial-gradient(circle, var(--mermaid-tertiary) 0%, transparent 70%);
+      opacity: .16;
+      pointer-events: none;
+    }}
+
+    .title-row {{
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 4px;
+    }}
+
+    h1 {{
+      margin: 0;
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: .2px;
+      color: var(--accent);
+    }}
+
+    .chip {{
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      background: var(--panel);
+    }}
+
+    .meta {{
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }}
+
+    h2 {{
+      margin: 18px 0 10px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      padding: 8px 2px;
+    }}
+
+    .info-table,
+    .schema-table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 13px;
+      background: var(--panel);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }}
+
+    .info-table th,
+    .info-table td,
+    .schema-table th,
+    .schema-table td {{
+      text-align: left;
+      vertical-align: top;
+      padding: 9px 11px;
+      border-bottom: 1px solid var(--rule);
+    }}
+
+    .info-table tr:last-child th,
+    .info-table tr:last-child td,
+    .schema-table tr:last-child td {{
+      border-bottom: none;
+    }}
+
+    .info-table th {{
+      width: 240px;
+      color: var(--accent);
+      white-space: nowrap;
+      font-weight: 700;
+    }}
+
+    .info-table td,
+    .schema-table td {{ color: var(--cell); }}
+
+    .schema-table thead th {{
+      color: var(--accent);
+      background: var(--panel);
+      font-weight: 700;
+    }}
+
     .code-wrap {{ position: relative; }}
-    .code-toolbar {{ display:flex; gap:8px; align-items:center; margin-bottom:6px; }}
+
+    .code-toolbar {{
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }}
+
     .code-toolbar .btn {{
-      appearance: none; background:#d54e62ff; color:#fff; border:none;
-      border-radius: 8px; padding:4px 8px; font-size:12px; cursor:pointer;
+      appearance: none;
+      background: var(--btn);
+      color: var(--btn-text);
+      border: none;
+      border-radius: 8px;
+      padding: 5px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 700;
     }}
-    a, .code-toolbar .btn:hover {{ background:#b8122d; }}
+
+    .code-toolbar .btn:hover {{ background: var(--btn-hover); }}
+
     .code-box {{
-      background: #353535ff;
-      border: 1px solid #353535ff; border-radius: 10px; padding: 10px 12px;
-      overflow: hidden; position: relative; transition:max-height .25s ease;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      overflow: hidden;
+      position: relative;
+      transition: max-height .25s ease;
+      box-shadow: inset 0 1px 0 var(--code-inset);
     }}
+
     .code-box.collapsed {{ max-height: 220px; }}
+
     .code-box.collapsed::after {{
-      content:""; position:absolute; left:0; right:0; bottom:0; height:48px;
-      background: linear-gradient(180deg, rgba(11,16,33,0) 0%, rgba(11,16,33,.9) 90%, rgba(11,16,33,1) 100%);
-      pointer-events:none;
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 54px;
+      background: linear-gradient(180deg, var(--fade-top) 0%, var(--fade-mid) 90%, var(--fade-bottom) 100%);
+      pointer-events: none;
     }}
+
+    pre {{ margin: 0; }}
+
     pre code.hljs {{
-        background: #353535ff !important;
-        white-space: pre-wrap !important;
-        word-break: break-word;
-        overflow-x: hidden;
+      background: var(--code-bg) !important;
+      white-space: pre-wrap !important;
+      word-break: break-word;
+      overflow-x: hidden;
     }}
+
+    .kv {{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      color: var(--rule);
+    }}
+
+    .mermaid-shell {{
+      margin-top: 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: var(--panel);
+      overflow: auto;
+    }}
+
+    .mermaid {{ min-width: 720px; }}
+
     .mermaid svg path,
     .mermaid svg line,
     .mermaid svg rect,
     .mermaid svg polygon,
-    .mermaid svg text {{
-        fill: #111111;
+    .mermaid svg text {{ fill: var(--mermaid-text); }}
+
+    ul {{ margin: 0; padding-left: 18px; }}
+    li {{ margin: 5px 0; }}
+
+    a {{ color: var(--link); text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+
+    .footnote {{
+      margin-top: 16px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
     }}
-    .kv {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; color:#334155; }}
-    .footnote {{ margin-top: 16px; font-size: 11px; color: #94a3b8; text-align: right; }}
+
+    @media (max-width: 860px) {{
+      .wrap {{ padding: 14px; }}
+      .panel {{ padding: 14px; }}
+      .info-table th {{ width: 180px; }}
+      .mermaid {{ min-width: 620px; }}
+    }}
   </style>
 
-  <!-- Highlight.js theme -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 </head>
 <body>
   <div class="wrap">
     <div class="panel">
-      <h1>etl_base</h1>
-      <div class="meta">Generated 2025-10-15 23:21:36 (America/Sao_Paulo)</div>
+      <div class="title-row">
+        <h1>ETLBase (Spark + Iceberg)</h1>
+        <span class="chip">Reference</span>
+      </div>
+      <div class="meta">Generated {date} ({timezone})</div>
 
-      <!-- Info table -->
-      <table class="info-table" aria-describedby="job info">
+      <table class="info-table" aria-describedby="etl-base metadata">
         <tbody>
-          <tr><th>Description</th><td>Base ETL class for Spark + Iceberg (AWS Glue). It defines read/write conventions, the incremental window, and the standard orchestration via <span class="kv">run()</span>.</td></tr>
-          <tr><th>Module</th><td>etl_base</td></tr>
-          <tr><th>Module Path</th><td><pre>./etl/etl_base.py</pre></td></tr>
-          <tr><th>FIXED_SCHEMA</th><td><code class="kv">boltpipe</code></td></tr>
-          <tr><th>Read Catalog (bronze)</th><td><code class="kv">shared_catalog</code></td></tr>
-          <tr><th>Write Catalog (save_catalog)</th><td><code class="kv">dev_catalog</code></td></tr>
-          <tr><th>Iceberg Identifier</th><td><span class="kv">&lt;save_catalog&gt;.boltpipe.&lt;layer&gt;_&lt;output_table_name&gt;</span></td></tr>
-          <tr><th>Key Parameters</th><td>
-            <div class="kv">
-              (spark, layer, bucket, input_tables, output_table_name, partition_by=None, unload=True, incremental=True, catalog="shared_catalog", save_catalog="dev_catalog", **kwargs)
-            </div>
-          </td></tr>
-
-          <!-- Code with toggle + copy + highlight -->
           <tr>
-            <th>Code (etl_base.py)</th>
+            <th>Description</th>
             <td>
-              <div class="code-wrap" id="job-code-wrap">
+              Base ETL class for Spark + Iceberg (Glue). Defines read/write conventions,
+              generic incremental-policy behavior, and the orchestration flow via
+              <span class="kv">run()</span>.
+            </td>
+          </tr>
+          <tr><th>Module</th><td><span class="kv">bolt_pipeliner.bases.spark_iceberg.ETLBase</span></td></tr>
+          <tr><th>Module Path</th><td><pre>{module_path}</pre></td></tr>
+          <tr><th>FIXED_SCHEMA</th><td><code class="kv">{fixed_schema}</code></td></tr>
+          <tr><th>Read Catalog (bronze)</th><td><code class="kv">{read_catalog}</code></td></tr>
+          <tr><th>Write Catalog</th><td><code class="kv">{write_catalog}</code></td></tr>
+          <tr><th>Iceberg Identifier</th><td><span class="kv">{iceberg_identifier}</span></td></tr>
+          <tr>
+            <th>Key Parameters</th>
+            <td>
+              <div class="kv">
+                (spark, layer, bucket, input_tables, output_table_name, partition_by=None,
+                unload=True, incremental=True, catalog, save_catalog, fixed_schema,
+                incremental_column, incremental_type, incremental_unit,
+                incremental_date_grain, **kwargs)
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <th>Code (spark_iceberg.py)</th>
+            <td>
+              <div class="code-wrap" id="base-code-wrap">
                 <div class="code-toolbar">
-                  <button class="btn" id="job-code-toggle" aria-expanded="false" aria-controls="job-code-box">Show full code</button>
-                  <button class="btn" id="job-code-copy">Copy</button>
+                  <button class="btn" id="base-code-toggle" aria-expanded="false" aria-controls="base-code-box">Show full code</button>
+                  <button class="btn" id="base-code-copy">Copy</button>
                 </div>
-                <div class="code-box collapsed" id="job-code-box">
+                <div class="code-box collapsed" id="base-code-box">
 <pre><code class="language-python">
 {etlbasecode}
-                  </code></pre>
+</code></pre>
                 </div>
               </div>
             </td>
           </tr>
-
-          <tr><th>I/O Conventions</th><td>
-            <ul>
-              <li><span class="kv">flatfile</span>: CSV at <span class="kv">s3a://&lt;bucket&gt;/&lt;path&gt;</span></li>
-              <li><span class="kv">bronze</span>: <span class="kv">SELECT * FROM &lt;catalog&gt;.&lt;name&gt;</span> (when <span class="kv">name</span> contains a dot) or read via <span class="kv">save_catalog.boltpipe.&lt;name&gt;</span></li>
-              <li><span class="kv">silver/gold</span> (else): <span class="kv">save_catalog.boltpipe.&lt;name&gt;</span></li>
-              <li>Writes to: <span class="kv">&lt;save_catalog&gt;.boltpipe.&lt;layer&gt;_&lt;output_table_name&gt;</span></li>
-            </ul>
-          </td></tr>
-          <tr><th>Incremental</th><td>If <span class="kv">incremental=True</span> and the table exists, writes only partitions where <span class="kv">year_month</span> is within the last ~3 months.</td></tr>
+          <tr>
+            <th>I/O Conventions</th>
+            <td>
+              <ul>
+                <li><span class="kv">flatfile</span>: reads CSV/Parquet/Excel/JSON from configured source location + relative path.</li>
+                <li><span class="kv">bronze</span>: dotted inputs use <span class="kv">spark.sql('SELECT * FROM &lt;catalog&gt;.&lt;name&gt;')</span>; others read from write catalog schema.</li>
+                <li><span class="kv">silver/gold/diamond</span>: reads from <span class="kv">&lt;save_catalog&gt;.&lt;fixed_schema&gt;.&lt;name&gt;</span>.</li>
+                <li>Writes use <span class="kv">createOrReplace()</span> on <span class="kv">&lt;save_catalog&gt;.&lt;fixed_schema&gt;.&lt;layer&gt;_&lt;output_table_name&gt;</span>.</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <th>Incremental Policy</th>
+            <td>
+              Uses <span class="kv">incremental_column</span>, <span class="kv">incremental_type</span>,
+              <span class="kv">incremental_unit</span>, and <span class="kv">incremental_date_grain</span>.
+              Modes: <span class="kv">-1 / overwrite</span> = full overwrite,
+              <span class="kv">0 / append</span> = new incremental values only,
+              <span class="kv">N &gt; 0</span> = refresh latest N existing values + newer incoming values.
+              Active defaults: <span class="kv">{incremental_column}</span> /
+              <span class="kv">{incremental_type}</span> /
+              <span class="kv">{incremental_unit}</span> /
+              <span class="kv">{incremental_date_grain}</span>.
+            </td>
+          </tr>
           <tr><th>Partition By</th><td><pre>None (set a list of columns to enable Iceberg partitioning)</pre></td></tr>
           <tr><th>Unload</th><td>True (default)</td></tr>
         </tbody>
       </table>
 
-      <div class="mermaid">
-%%{{init: {{'theme': 'base', 'themeVariables': {{ 'lineColor': '#888888', 'tertiaryColor': '#aaaaaa' }}}}}}%%
+      <h2>Execution Flow</h2>
+      <div class="mermaid-shell">
+        <div class="mermaid">
 flowchart TD
-    %% =========================
-    %% BIG-PICTURE ORCHESTRATION
-    %% =========================
     R["run()"] --> A["check_if_tables_exists_find_yearmonths()"]
     A --> B["load_data(input_table_names)"]
+    B --> C["processed_df = process_data(input_tables)"]
+    C --> U{{"unload?"}}
+    U -- "No" --> Z["End"]
+    U -- "Yes" --> U1["unload_data(processed_df)"]
+    U1 --> U2["_ensure_namespace(save_catalog, fixed_schema)"]
+    U2 --> U3["_apply_incremental_policy(processed_df)"]
+    U3 --> U4["_create_table(df_to_write)"]
+    U4 --> Z
 
-    %% ---- load_data decisions (inline) ----
-    B --> I0{{"input_table_names empty?"}}
-    I0 -- "Yes" --> I0a["return (no loads)"] --> D["process_data(self.input_tables)"]
-    I0 -- "No" --> L1{{"self.layer?"}}
-    L1 -- "flatfile" --> Lf["read CSVs from s3a://&lt;bucket&gt;/&lt;rel_path&gt;"]
-    L1 -- "bronze" --> Lb{{"name contains '.' ?"}}
-    Lb -- "Yes" --> Lb1["spark.sql('SELECT * FROM &lt;self.catalog&gt;.&lt;name&gt;')"]
-    Lb -- "No"  --> Lb2["spark.read.table('&lt;save_catalog&gt;.&lt;FIXED_SCHEMA&gt;.&lt;name&gt;')"]
-    L1 -- "else" --> Ls["spark.read.table('&lt;save_catalog&gt;.&lt;FIXED_SCHEMA&gt;.&lt;name&gt;')"]
-
-    %% converge after load
-    Lf --> D
-    Lb1 --> D
-    Lb2 --> D
-    Ls --> D
-
-    %% ---- processing ----
-    D["process_data(self.input_tables)"] --> E["self.df = processed_df"]
-
-    %% ---- unload decisions (inline) ----
-    E --> F{{"self.unload?"}}
-    F -- "No" --> Z["End"]
-    F -- "Yes" --> U0["unload_data(self.df)"]
-    U0 --> U1["_ensure_namespace(self.save_catalog, FIXED_SCHEMA)"]
-    U1 --> U2{{"self.table_exists?"}}
-    U2 -- "No (first write)" --> U3["_create_table(processed_df)"] --> U9["print('Data successfully saved')"] --> Z
-    U2 -- "Yes" --> U4{{"self.incremental AND self.year_months != None?"}}
-    U4 -- "Yes" --> U5["target_df = processed_df.filter(year_month IN self.year_months)"] --> U6["_replace_table_partitions(target_df)"] --> U9 --> Z
-    U4 -- "No"  --> U7["_replace_table_partitions(processed_df)"] --> U9 --> Z
-
-    %% (dotted cues showing hidden helpers used earlier)
-    A -. "uses" .-> H1["_table_exists(self.iceberg_table)"]
+    U3 -. "append/window modes read existing target" .-> T["spark.read.table(iceberg_table)"]
+        </div>
       </div>
 
       <h2>Usage Tips</h2>
-      <table class="info-table" aria-describedby="tips">
+      <table class="info-table" aria-describedby="etl-base usage tips">
         <tbody>
-          <tr><th>Required override</th><td>Create a subclass and implement <span class="kv">process_data(self, input_tables)</span>.</td></tr>
-          <tr><th>Partitioning</th><td>Set <span class="kv">partition_by=[...]</span> to enable Iceberg <span class="kv">partitionedBy</span>.</td></tr>
-          <tr><th>Incremental window</th><td>Ensure <span class="kv">year_month</span> exists in <span class="kv">processed_df</span> when <span class="kv">incremental=True</span>.</td></tr>
-          <tr><th>Bronze behavior</th><td>When an input name contains a dot (<span class="kv">schema.table</span>), reading is done via <span class="kv">spark.sql</span> against the original <span class="kv">catalog</span> to preserve legacy behavior.</td></tr>
+          <tr><th>Required override</th><td>Implement <span class="kv">process_data(self, input_tables)</span> in each ETL module.</td></tr>
+          <tr><th>Input contract</th><td><span class="kv">input_tables</span> is a dict keyed by YAML aliases, each value already loaded as a DataFrame.</td></tr>
+          <tr><th>Incremental contract</th><td>For append/window modes, return data containing the configured <span class="kv">incremental_column</span> with valid <span class="kv">incremental_type</span>/<span class="kv">incremental_date_grain</span>.</td></tr>
+          <tr><th>Manual writes</th><td>Set <span class="kv">unload: false</span> if your job handles writes manually (for large partition-by-partition strategies).</td></tr>
         </tbody>
       </table>
-      <div class="footnote">Created by Bolt-Pipeliner</div>
 
+      <div class="footnote">Created by Bolt-Pipeliner</div>
     </div>
   </div>
 
-  <!-- highlight.js scripts -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
   <script>hljs.highlightAll();</script>
 
   <script type="module">
-    // Mermaid
     import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({{ startOnLoad: true, securityLevel: "loose", theme: "dark" }});
 
-    // Toggle & Copy logic for Code
-    const toggleBtn = document.getElementById('job-code-toggle');
-    const copyBtn = document.getElementById('job-code-copy');
-    const codeBox  = document.getElementById('job-code-box');
-
-    function setExpanded(expanded) {{
-      codeBox.classList.toggle('collapsed', !expanded);
-      toggleBtn.setAttribute('aria-expanded', String(expanded));
-      toggleBtn.textContent = expanded ? 'Hide full code' : 'Show full code';
-    }}
-
-    toggleBtn.addEventListener('click', () => {{
-      const expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
-      setExpanded(!expanded);
-    }});
-
-    copyBtn.addEventListener('click', async () => {{
-      const codeText = codeBox.querySelector('code').innerText;
-      try {{
-        await navigator.clipboard.writeText(codeText);
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => (copyBtn.textContent = 'Copy'), 1200);
-      }} catch (e) {{
-        copyBtn.textContent = 'Press Ctrl/Cmd+C';
-        setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
+    mermaid.initialize({{
+      startOnLoad: true,
+      securityLevel: "loose",
+      theme: "base",
+      themeVariables: {{
+        lineColor: "{mermaid_line}",
+        tertiaryColor: "{mermaid_tertiary}",
+        primaryTextColor: "{mermaid_text}",
+        fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, Helvetica"
       }}
     }});
 
-    // Start collapsed
+    const toggleBtn = document.getElementById("base-code-toggle");
+    const copyBtn = document.getElementById("base-code-copy");
+    const codeBox = document.getElementById("base-code-box");
+
+    function setExpanded(expanded) {{
+      codeBox.classList.toggle("collapsed", !expanded);
+      toggleBtn.setAttribute("aria-expanded", String(expanded));
+      toggleBtn.textContent = expanded ? "Hide full code" : "Show full code";
+    }}
+
+    toggleBtn.addEventListener("click", () => {{
+      const expanded = toggleBtn.getAttribute("aria-expanded") === "true";
+      setExpanded(!expanded);
+    }});
+
+    copyBtn.addEventListener("click", async () => {{
+      const codeText = codeBox.querySelector("code").innerText;
+      try {{
+        await navigator.clipboard.writeText(codeText);
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
+      }} catch (e) {{
+        copyBtn.textContent = "Press Ctrl/Cmd+C";
+        setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
+      }}
+    }});
+
     setExpanded(false);
   </script>
 </body>

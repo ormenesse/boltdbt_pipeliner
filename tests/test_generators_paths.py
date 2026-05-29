@@ -29,3 +29,11 @@ def test_documentation_templates_include_bolt_footnote():
     for name in ("index.txt", "mermaid_page.txt", "etl_base_html.txt"):
         body = (TEMPLATES_DOCS / name).read_text(encoding="utf-8")
         assert "Created by Bolt-Pipeliner" in body
+
+
+def test_docs_templates_reference_style_placeholders():
+    for name in ("mermaid_page.txt", "etl_base_html.txt"):
+        body = (TEMPLATES_DOCS / name).read_text(encoding="utf-8")
+        assert "{body_background}" in body
+        assert "{heading_accent}" in body
+        assert "{mermaid_line}" in body

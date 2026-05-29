@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: bolt_pipeliner
-Version: 0.2.5
+Version: 0.2.6
 Summary: Config-driven ETL framework for Spark, Pandas, and Polars.
 Author: Vinicius Ormenesse
 License-Expression: Apache-2.0
@@ -217,7 +217,7 @@ The shims are still emitted; they fall back to the installed package when `_bolt
 ```
 bolt init      PROJECT_NAME [--path PATH] [--preset NAME] [--vendor/--no-vendor]
 bolt run       [--config PATH] [--flatfile|--bronze|--silver|--gold|--diamond]
-                              [--select SEL] [--layer L]
+                              [--select SEL] [--layer L] [--verbose]
 bolt test      [--config PATH] [--layer L] [--module M]
 bolt generate  {airflow|documentation|layers|notebook|all} [--config PATH]
 ```
@@ -230,6 +230,8 @@ bolt generate  {airflow|documentation|layers|notebook|all} [--config PATH]
 | `bolt generate` | Regenerates Airflow DAGs, HTML docs, standalone layer scripts, and the notebook from the config. Use `all` to run all of them. |
 
 `bolt --help` and `bolt <subcommand> --help` print the full option set. Inside a scaffolded project you can substitute `python bolt.py …` / `python main.py …` / `python generate.py …` (see [Self-contained projects](#self-contained-projects-vendored-copy--shims)).
+
+Use `bolt run --verbose` to print each resolved job/module as it executes.
 
 ### Selecting jobs to run
 
@@ -269,8 +271,10 @@ configs:
   flatfile_location: "data/flatfiles"
   schema: my_project          # destination schema (Iceberg namespace, Snowflake schema, …)
   catalog: dev_catalog        # destination catalog for non-bronze reads/writes
-  incremental_column: year_month   # optional; default "year_month" for Iceberg
-                                    # base, "yearMonth" for Pandas/Polars bases
+  incremental_column: anomes
+  incremental_type: int           # int | date
+  incremental_unit: 3             # -1/overwrite, 0/append, or N>0 window
+  incremental_date_grain: monthly # yearly | monthly | daily (for date type)
 
 layers:
   flatfile: etl/_flatfile
@@ -324,6 +328,10 @@ silver:
 | `class_name` | no (default `ETLBase`) | Picks the base class. Built-ins: `ETLBase`, `ETLBaseDelta`, `ETLBaseParquet`, `ETLBaseParquetPandas`, `ETLBaseParquetPolars`. Also accepts dotted paths like `mypkg.bases.MyCustom`. |
 | `partition_by` | no | List of column names. |
 | `incremental` | no (default false) | See [Incremental processing](#incremental-processing). |
+| `incremental_column` | no | Per-job override for the root `configs.incremental_column`. |
+| `incremental_type` | no | Per-job override for `configs.incremental_type` (`int` or `date`). |
+| `incremental_unit` | no | Per-job override for `configs.incremental_unit` (`-1`/`overwrite`, `0`/`append`, or positive window size). |
+| `incremental_date_grain` | no | Per-job override for `configs.incremental_date_grain` (`yearly`, `monthly`, `daily`) when `incremental_type: date`. |
 | `unload` | no (default true) | If false, the runtime won't call `unload_data` — useful for manual partition writes. |
 | `description` | no | Free text; surfaces in `bolt generate documentation`. |
 | `tests` | no | See [Data-quality tests](#data-quality-tests-bolt-test). |
@@ -332,7 +340,7 @@ silver:
 
 ## Base classes (engine selection)
 
-Five sibling base classes ship in `bolt_pipeliner.bases.*`. They expose the same lifecycle methods (`check_if_tables_exists_find_yearmonths` → `load_data` → `process_data` → `unload_data`); jobs don't subclass them — the runner picks one per job via the YAML `class_name:` key.
+Five sibling base classes ship in `bolt_pipeliner.bases.*`. They expose the same lifecycle shape (`check_if_tables_exists_find_yearmonths` [legacy hook] → `load_data` → `process_data` → `unload_data`); jobs don't subclass them — the runner picks one per job via the YAML `class_name:` key.
 
 | `class_name` | Engine | Storage | When to use |
 |---|---|---|---|
@@ -364,8 +372,9 @@ Every job module exports one top-level function:
 from pyspark.sql import functions as F
 
 def process_data(self, input_tables):
-    """`self` is the ETLBase instance, so you can call self.spark, self.year_months,
-    self._create_table, self._replace_table_partitions, etc.
+    """`self` is the ETLBase instance, so you can call self.spark,
+    self.incremental_policy, self.incremental_column, self._create_table,
+    self._replace_table_partitions, etc.
     """
     calls = input_tables["t_agent_calls"]
     return (
@@ -381,7 +390,7 @@ The runner monkey-patches your function onto the `ETLBase` instance via `types.M
 |---|---|
 | `self.spark` | The Spark session (Spark bases only). |
 | `self.input_tables` | Dict of alias → DataFrame, already loaded. |
-| `self.year_months` | The incremental window (list of YYYYMM ints), or `None` for a full run. |
+| `self.incremental_policy`, `self.incremental_column` | Effective incremental mode + column resolved from root/job config. |
 | `self.partition_by`, `self.incremental`, `self.unload` | Echo of the YAML config. |
 | `self._create_table(df)` / `self._replace_table_partitions(df)` | Manual write helpers. |
 | `self.iceberg_table` / `self._write_table` / `self.parquet_path` / `self.dataset_path` | Destination identifier (varies by base). |
@@ -393,17 +402,29 @@ A Pandas job looks the same but returns a `pd.DataFrame`; a Polars job returns a
 
 ## Incremental processing
 
-Set `incremental: true` and list a partition column whose name matches `incremental_column` (default `year_month`):
+Set `incremental: true` and configure the root policy once under `configs:`. You can override any of these keys per job.
 
 ```yaml
 - module: silver_fct_calls
   incremental: true
-  partition_by: [year_month]
+  incremental_column: anomes
+  incremental_type: int
+  incremental_unit: 2
+  partition_by: [anomes]
 ```
 
-When the output table already exists, `ETLBase.run()` computes `self.year_months` as `[current_month - 3 … current_month]`. The base then filters `processed_df` by `year_month ∈ self.year_months` before `overwritePartitions()`.
+Incremental modes:
 
-**Requirements:** the returned DataFrame must include the configured incremental column, and that column must be in `partition_by`. If a job does not fit this monthly model, either set `incremental: false` or set `unload: false` and write partitions yourself inside `process_data`, then return an empty DataFrame.
+- `incremental_unit: -1` or `overwrite` → full overwrite.
+- `incremental_unit: 0` or `append` → only new incremental-column values not already present are appended.
+- `incremental_unit: N` (`N > 0`) → last `N` existing incremental values are refreshed, plus any newer values.
+
+Type constraints:
+
+- `incremental_type: int` → incremental column must be integer-like.
+- `incremental_type: date` → incremental column must be date-like and constrained by `incremental_date_grain` (`yearly`, `monthly`, `daily`).
+
+**Requirements:** the returned DataFrame must include the configured incremental column whenever `incremental: true`.
 
 ### Advanced — manual partition unloading
 
@@ -412,9 +433,11 @@ For memory-heavy jobs, process month-by-month and write each partition yourself:
 ```python
 def process_data(self, input_tables):
     raw = input_tables["raw"]
-    months_to_process = self.year_months or _list_all_months(raw)
-    for ym in months_to_process:
-        chunk = transform_one_month(raw, ym)
+    inc_col = self.incremental_column
+    mode = self.incremental_policy.mode
+    values_to_process = _resolve_values_from_policy(raw, inc_col, mode)
+    for value in values_to_process:
+        chunk = transform_one_value(raw, value, inc_col)
         if not self.table_exists:
             self._create_table(chunk)
             self.table_exists = True

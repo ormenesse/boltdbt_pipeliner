@@ -18,4 +18,9 @@ bolt run --config configs/etl_config.yaml
 bolt test --config configs/etl_config.yaml
 ```
 
+Use `bolt run --config configs/etl_config.yaml --verbose` to print each job/module as it executes.
+
+The example config uses generic incremental policy keys (root defaults plus per-job overrides):
+`incremental_column`, `incremental_type`, `incremental_unit`, and `incremental_date_grain`.
+
 Layer outputs land in `data/layers/`, and model artifacts land in `outputs/models/collision_injury_logreg_pandas/`.

@@ -3,6 +3,10 @@ configs:
   flatfile_location: "s3://bolt_pipeliner/flatfiles/"
   schema: bolt_pipeliner
   catalog: catalog
+  incremental_column: year_month
+  incremental_type: int
+  incremental_unit: 3
+  incremental_date_grain: monthly
 
 layers:
   flatfile: etl/_flatfile
@@ -45,6 +49,7 @@ silver:
   - module: silver_fct_state_gas_cpi_monthly
     description: "Monthly CPI, gas price, and inflation metrics with 12-month rolling averages and percent changes, by state."
     incremental: true
+    incremental_unit: 2
     class_name: ETLBase
     input_tables:
       cpi: flatfile_cpi_regional

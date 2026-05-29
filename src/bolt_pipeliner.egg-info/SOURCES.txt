@@ -11,6 +11,7 @@ src/bolt_pipeliner.egg-info/entry_points.txt
 src/bolt_pipeliner.egg-info/requires.txt
 src/bolt_pipeliner.egg-info/top_level.txt
 src/bolt_pipeliner/bases/__init__.py
+src/bolt_pipeliner/bases/_incremental.py
 src/bolt_pipeliner/bases/_io.py
 src/bolt_pipeliner/bases/pandas_parquet.py
 src/bolt_pipeliner/bases/polars_parquet.py

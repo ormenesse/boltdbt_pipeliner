@@ -23,6 +23,13 @@ bolt test --config configs/etl_config.yaml
 bolt generate documentation
 ```
 
+Add `--verbose` to `bolt run` when you want per-job execution logs.
+
+All maintained demos now use the generalized incremental config contract:
+`incremental_column`, `incremental_type` (`int`/`date`), `incremental_unit`
+(`-1`/`overwrite`, `0`/`append`, `N > 0` window), and `incremental_date_grain`
+(`yearly`/`monthly`/`daily` for date mode).
+
 (Some examples (for example `demo_spark/`, `demo_pandas/`, and `demo_polars/`) run fully local. Larger reference projects may reference S3 paths and require real credentials.)
 
 The local demos use `configs.output_location: data/layers` and `configs.flatfile_location: data/raw`.

@@ -1,4 +1,3 @@
-import datetime as dt
 import json
 import logging
 from typing import Any, Dict, Iterable, Optional
@@ -12,6 +11,10 @@ try:
 except ImportError:
     fsspec = None
 
+from bolt_pipeliner.bases._incremental import (
+    build_incremental_policy,
+    incremental_values_desc,
+)
 from bolt_pipeliner.bases._io import (
     detect_file_format,
     has_uri_scheme,
@@ -26,10 +29,16 @@ class ETLBaseParquetPolars:
     Polars/pyarrow ETL base:
       - Input: CSV, Parquet, Excel, or JSON (local paths or cloud URIs).
       - Output: Parquet (optionally partitioned).
-      - Incremental: process only the last 3 months if an existing output dataset already exists.
+      - Incremental modes:
+          * window: rewrite last N values from incremental_column (+ new values)
+          * append: write only values not already present
+          * overwrite: rewrite the full table
     """
 
     DEFAULT_INCREMENTAL_COLUMN = "yearMonth"
+    DEFAULT_INCREMENTAL_TYPE = "int"
+    DEFAULT_INCREMENTAL_UNIT = 3
+    DEFAULT_INCREMENTAL_DATE_GRAIN = "monthly"
 
     def __init__(
         self,
@@ -42,6 +51,9 @@ class ETLBaseParquetPolars:
         incremental: bool = True,
         storage_options: Optional[Dict[str, Any]] = None,
         incremental_column: Optional[str] = None,
+        incremental_type: Optional[str] = None,
+        incremental_unit: Optional[int | str] = None,
+        incremental_date_grain: Optional[str] = None,
         **kwargs,
     ):
         self.layer = layer
@@ -60,11 +72,21 @@ class ETLBaseParquetPolars:
         self.partition_by = tuple(partition_by) if partition_by else None
         self.df: Optional[pl.DataFrame] = None
         self.incremental = incremental
-        self.year_months: Optional[list[int]] = None
+        self.year_months: Optional[list[int]] = None  # Backward-compat alias.
         self.unload = unload
         self.storage_options = storage_options or {}
         self.extra_args = kwargs
-        self.incremental_column = incremental_column or self.DEFAULT_INCREMENTAL_COLUMN
+        self.incremental_policy = build_incremental_policy(
+            enabled=incremental,
+            column=incremental_column or self.DEFAULT_INCREMENTAL_COLUMN,
+            unit=incremental_unit,
+            value_type=incremental_type,
+            date_grain=incremental_date_grain,
+            default_window=self.DEFAULT_INCREMENTAL_UNIT,
+            default_value_type=self.DEFAULT_INCREMENTAL_TYPE,
+            default_date_grain=self.DEFAULT_INCREMENTAL_DATE_GRAIN,
+        )
+        self.incremental_column = self.incremental_policy.column
 
     def _resolve_input_path(self, source: str) -> str:
         default_extension = ".parquet" if self.layer != "flatfile" else None
@@ -108,29 +130,121 @@ class ETLBaseParquetPolars:
         return pl.from_pandas(pd.json_normalize(payload))
 
     def check_if_tables_exists_find_yearmonths(self):
-        if not self.incremental:
-            self.year_months = None
-            return
+        # Keep method name for API compatibility.
+        self.year_months = None
 
+    def _load_existing_dataset(self) -> pl.DataFrame:
         try:
             dataset = ds.dataset(self.dataset_path, format="parquet")
-            _ = list(dataset.files)
+            if not list(dataset.files):
+                return pl.DataFrame()
         except Exception:
-            self.year_months = None
-            return
+            return pl.DataFrame()
 
-        today = dt.date.today()
-        start = today.replace(day=1) - dt.timedelta(days=31 * 3)
-        month_seq = [(start.year * 100 + start.month)]
-        while month_seq[-1] < (today.year * 100 + today.month):
-            y, m = divmod(month_seq[-1], 100)
-            if m == 12:
-                y += 1
-                m = 1
+        try:
+            return pl.read_parquet(self.dataset_path, **self.storage_options)
+        except Exception:
+            table = ds.dataset(self.dataset_path, format="parquet").to_table()
+            return pl.from_arrow(table)
+
+    def _normalize_incremental_polars(self, df: pl.DataFrame, *, frame_name: str) -> pl.DataFrame:
+        marker = "__bp_incremental_value"
+        if self.incremental_column not in df.columns:
+            raise ValueError(
+                f"Incremental column '{self.incremental_column}' not found in {frame_name}."
+            )
+
+        if self.incremental_policy.value_type == "int":
+            normalized = pl.col(self.incremental_column).cast(pl.Int64, strict=False)
+        else:
+            normalized = pl.col(self.incremental_column).cast(pl.Date, strict=False)
+
+        out = df.with_columns(normalized.alias(marker))
+        invalid = out.filter(
+            pl.col(self.incremental_column).is_not_null()
+            & pl.col(marker).is_null()
+        )
+        if invalid.height > 0:
+            raise ValueError(
+                f"Incremental column '{self.incremental_column}' in {frame_name} has invalid "
+                f"{self.incremental_policy.value_type} values."
+            )
+
+        if self.incremental_policy.value_type == "date":
+            if self.incremental_policy.date_grain == "yearly":
+                valid_grain = (
+                    (pl.col(marker).dt.month() == 1)
+                    & (pl.col(marker).dt.day() == 1)
+                )
+            elif self.incremental_policy.date_grain == "monthly":
+                valid_grain = pl.col(marker).dt.day() == 1
             else:
-                m += 1
-            month_seq.append(y * 100 + m)
-        self.year_months = month_seq
+                valid_grain = pl.lit(True)
+
+            bad = out.filter(pl.col(marker).is_not_null() & (~valid_grain))
+            if bad.height > 0:
+                raise ValueError(
+                    f"Incremental column '{self.incremental_column}' in {frame_name} must follow "
+                    f"{self.incremental_policy.date_grain} date granularity."
+                )
+
+        return out
+
+    def _apply_incremental_policy(self, incoming_df: pl.DataFrame) -> pl.DataFrame:
+        if (not self.incremental_policy.enabled) or self.incremental_policy.mode == "overwrite":
+            return incoming_df.clone()
+
+        marker = "__bp_incremental_value"
+        incoming = self._normalize_incremental_polars(
+            incoming_df,
+            frame_name="processed DataFrame",
+        )
+
+        existing = self._load_existing_dataset()
+        if existing.is_empty():
+            return incoming.drop(marker)
+
+        existing = self._normalize_incremental_polars(
+            existing,
+            frame_name="existing target table",
+        )
+
+        existing_values = (
+            existing.select(marker)
+            .drop_nulls()
+            .unique()
+            .to_series()
+            .to_list()
+        )
+
+        if self.incremental_policy.mode == "append":
+            existing_set = set(existing_values)
+            incoming_values = (
+                incoming.select(marker)
+                .drop_nulls()
+                .unique()
+                .to_series()
+                .to_list()
+            )
+            values_to_append = [v for v in incoming_values if v not in existing_set]
+            incoming_filtered = incoming.filter(pl.col(marker).is_in(values_to_append))
+            return pl.concat(
+                [existing.drop(marker), incoming_filtered.drop(marker)],
+                how="diagonal_relaxed",
+            )
+
+        sorted_existing = incremental_values_desc(existing_values)
+        latest_values = sorted_existing[: self.incremental_policy.window_size or 0]
+        if not latest_values:
+            return incoming.drop(marker)
+
+        cutoff = latest_values[-1]
+        incoming_recent = incoming.filter(pl.col(marker) >= pl.lit(cutoff))
+        existing_retained = existing.filter(~pl.col(marker).is_in(latest_values))
+        return pl.concat(
+            [existing_retained.drop(marker), incoming_recent.drop(marker)],
+            how="diagonal_relaxed",
+        )
 
     def load_data(self):
         logging.info(f"{self.logging_string} - Loading data...")
@@ -165,15 +279,7 @@ class ETLBaseParquetPolars:
             logging.info(f"{self.logging_string} - Nothing to write (empty df).")
             return
 
-        df_to_write = processed_df.clone()
-
-        if (
-            self.year_months is not None
-            and self.incremental_column in df_to_write.columns
-        ):
-            df_to_write = df_to_write.filter(
-                pl.col(self.incremental_column).is_in(self.year_months)
-            )
+        df_to_write = self._apply_incremental_policy(processed_df)
 
         logging.info(f"{self.logging_string} - Saving data to - {self.dataset_path}...")
 

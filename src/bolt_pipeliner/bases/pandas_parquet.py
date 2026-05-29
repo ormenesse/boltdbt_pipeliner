@@ -1,4 +1,3 @@
-import datetime as dt
 import json
 import logging
 from typing import Any, Dict, Iterable, Optional
@@ -7,6 +6,10 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 
+from bolt_pipeliner.bases._incremental import (
+    apply_incremental_policy_pandas,
+    build_incremental_policy,
+)
 from bolt_pipeliner.bases._io import (
     detect_file_format,
     has_uri_scheme,
@@ -27,10 +30,16 @@ class ETLBaseParquetPandas:
       - No Spark or SQL.
       - Input: CSV, Parquet, Excel, or JSON (local paths or cloud URIs).
       - Output: Parquet (optionally partitioned).
-      - Incremental: process only the last 3 months if an existing output dataset already exists.
+      - Incremental modes:
+          * window: rewrite last N values from incremental_column (+ new values)
+          * append: write only values not already present
+          * overwrite: rewrite the full table
     """
 
     DEFAULT_INCREMENTAL_COLUMN = "yearMonth"
+    DEFAULT_INCREMENTAL_TYPE = "int"
+    DEFAULT_INCREMENTAL_UNIT = 3
+    DEFAULT_INCREMENTAL_DATE_GRAIN = "monthly"
 
     def __init__(
         self,
@@ -43,6 +52,9 @@ class ETLBaseParquetPandas:
         incremental: bool = True,
         storage_options: Optional[Dict[str, Any]] = None,
         incremental_column: Optional[str] = None,
+        incremental_type: Optional[str] = None,
+        incremental_unit: Optional[int | str] = None,
+        incremental_date_grain: Optional[str] = None,
         **kwargs,
     ):
         self.layer = layer
@@ -61,10 +73,20 @@ class ETLBaseParquetPandas:
         self.partition_by = tuple(partition_by) if partition_by else None
         self.df: Optional[pd.DataFrame] = None
         self.incremental = incremental
-        self.year_months: Optional[list[int]] = None
+        self.year_months: Optional[list[int]] = None  # Backward-compat alias.
         self.unload = unload
         self.storage_options = storage_options or {}
-        self.incremental_column = incremental_column or self.DEFAULT_INCREMENTAL_COLUMN
+        self.incremental_policy = build_incremental_policy(
+            enabled=incremental,
+            column=incremental_column or self.DEFAULT_INCREMENTAL_COLUMN,
+            unit=incremental_unit,
+            value_type=incremental_type,
+            date_grain=incremental_date_grain,
+            default_window=self.DEFAULT_INCREMENTAL_UNIT,
+            default_value_type=self.DEFAULT_INCREMENTAL_TYPE,
+            default_date_grain=self.DEFAULT_INCREMENTAL_DATE_GRAIN,
+        )
+        self.incremental_column = self.incremental_policy.column
 
     def _read_json_normalized(self, path: str, *, lines: bool) -> pd.DataFrame:
         if lines:
@@ -122,29 +144,15 @@ class ETLBaseParquetPandas:
             return False
 
     def check_if_tables_exists_find_yearmonths(self):
-        if not self.incremental:
-            self.year_months = None
-            return
+        # Keep method name for API compatibility.
+        self.year_months = None
 
-        exists = self._fs_exists(self.dataset_path) and self._list_any_parquet_file(
+    def _load_existing_dataset(self) -> pd.DataFrame:
+        if not self._fs_exists(self.dataset_path) or not self._list_any_parquet_file(
             self.dataset_path
-        )
-        if not exists:
-            self.year_months = None
-            return
-
-        today = dt.date.today()
-        start = today.replace(day=1) - dt.timedelta(days=31 * 3)
-        month_seq = [(start.year * 100 + start.month)]
-        while month_seq[-1] < (today.year * 100 + today.month):
-            y, m = divmod(month_seq[-1], 100)
-            if m == 12:
-                y += 1
-                m = 1
-            else:
-                m += 1
-            month_seq.append(y * 100 + m)
-        self.year_months = month_seq
+        ):
+            return pd.DataFrame()
+        return pd.read_parquet(self.dataset_path, storage_options=self.storage_options)
 
     def load_data(self):
         logging.info(f"{self.logging_string} - Loading data...")
@@ -179,15 +187,12 @@ class ETLBaseParquetPandas:
             logging.info(f"{self.logging_string} - Nothing to write (empty df).")
             return
 
-        df_to_write = processed_df.copy()
-
-        if (
-            self.year_months is not None
-            and self.incremental_column in df_to_write.columns
-        ):
-            df_to_write = df_to_write[
-                df_to_write[self.incremental_column].isin(self.year_months)
-            ]
+        existing_df = self._load_existing_dataset()
+        df_to_write = apply_incremental_policy_pandas(
+            existing_df,
+            processed_df,
+            self.incremental_policy,
+        )
 
         logging.info(f"{self.logging_string} - Saving data to - {self.dataset_path} ...")
 

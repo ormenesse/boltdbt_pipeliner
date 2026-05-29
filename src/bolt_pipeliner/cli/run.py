@@ -11,5 +11,6 @@ def execute(
     layers: Optional[Iterable[str]] = None,
     select: Optional[str] = None,
     layer: Optional[str] = None,
+    verbose: bool = False,
 ) -> None:
-    runner_run(config_path, layers=layers, select=select, layer=layer)
+    runner_run(config_path, layers=layers, select=select, layer=layer, verbose=verbose)

@@ -5,169 +5,359 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title}</title>
   <style>
-    body {{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, Helvetica; margin: 0; background:{body_background}; color: {body_text}; }}
-    .wrap {{ padding: 24px; max-width: 1200px; margin: 0 auto; }}
-    .panel {{ background: {panel_background}; border: 1px solid {panel_border}; border-radius: 12px; box-shadow: 0 1px 3px {panel_shadow}; padding: 16px; }}
-    h1 {{ margin: 0 0 8px; font-size: 30px; font-weight: 600; color: {heading_accent};}}
-    h2 {{ margin: 5px 5px 8px 5px; font-size: 20px; font-weight: 600; color: {heading_accent}; border-bottom: 1px solid {rule_color}; border-top: 1px solid {rule_color}; padding-top: 8px; padding-bottom: 8px;}}
-    .meta {{ color: {meta_text}; font-size: 12px; }}
-    .info-table {{ width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }}
-    .info-table th, .info-table td {{ text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid {rule_color}; }}
-    .info-table th {{ color: {heading_accent}; white-space: nowrap; width: 220px; }}
-    .info-table td {{ color: {table_cell_text}; }}
-    .mermaid {{ margin-top: 16px; }}
-    a {{ color: {link_text}; }}
+    :root {{
+      --bg: {body_background};
+      --text: {body_text};
+      --panel: {panel_background};
+      --border: {panel_border};
+      --shadow: {panel_shadow};
+      --accent: {heading_accent};
+      --rule: {rule_color};
+      --muted: {meta_text};
+      --cell: {table_cell_text};
+      --link: {link_text};
+      --btn: {btn_bg};
+      --btn-text: {btn_text};
+      --btn-hover: {btn_hover_bg};
+      --code-bg: {code_bg};
+      --code-border: {code_border};
+      --code-inset: {code_inset_highlight};
+      --fade-top: {fade_top};
+      --fade-mid: {fade_mid};
+      --fade-bottom: {fade_bottom};
+      --mermaid-text: {mermaid_text};
+      --mermaid-line: {mermaid_line};
+      --mermaid-tertiary: {mermaid_tertiary};
+    }}
 
-    /* Code highlight + toggle */
+    * {{ box-sizing: border-box; }}
+
+    body {{
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, Helvetica;
+      color: var(--text);
+      background: var(--bg);
+    }}
+
+    .wrap {{
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 24px;
+    }}
+
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px var(--shadow);
+      padding: 18px;
+      position: relative;
+      overflow: hidden;
+    }}
+
+    .panel::before {{
+      content: "";
+      position: absolute;
+      top: -120px;
+      right: -70px;
+      width: 260px;
+      height: 260px;
+      border-radius: 999px;
+      background: radial-gradient(circle, var(--mermaid-tertiary) 0%, transparent 70%);
+      opacity: .16;
+      pointer-events: none;
+    }}
+
+    .title-row {{
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 2px;
+    }}
+
+    h1 {{
+      margin: 0;
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: .2px;
+      color: var(--accent);
+    }}
+
+    .meta {{
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }}
+
+    .chip-row {{
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }}
+
+    .chip {{
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      background: var(--panel);
+    }}
+
+    h2 {{
+      margin: 18px 0 10px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      padding: 8px 2px;
+    }}
+
+    .info-table,
+    .schema-table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 13px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }}
+
+    .info-table th,
+    .info-table td,
+    .schema-table th,
+    .schema-table td {{
+      text-align: left;
+      vertical-align: top;
+      padding: 9px 11px;
+      border-bottom: 1px solid var(--rule);
+    }}
+
+    .info-table tr:last-child th,
+    .info-table tr:last-child td,
+    .schema-table tr:last-child td {{ border-bottom: none; }}
+
+    .info-table th {{
+      color: var(--accent);
+      white-space: nowrap;
+      width: 200px;
+      font-weight: 700;
+    }}
+
+    .info-table td,
+    .schema-table td {{ color: var(--cell); }}
+
+    .schema-table thead th {{
+      color: var(--accent);
+      background: var(--panel);
+      font-weight: 700;
+    }}
+
     .code-wrap {{ position: relative; }}
-    .code-toolbar {{ display:flex; gap:8px; align-items:center; margin-bottom:6px; }}
+
+    .code-toolbar {{
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }}
+
     .code-toolbar .btn {{
-      appearance: none; background:{btn_bg}; color:{btn_text}; border:none;
-      border-radius: 8px; padding:4px 8px; font-size:12px; cursor:pointer;
+      appearance: none;
+      background: var(--btn);
+      color: var(--btn-text);
+      border: none;
+      border-radius: 8px;
+      padding: 5px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 700;
     }}
-    a, .code-toolbar .btn:hover {{ background:{btn_hover_bg}; }}
+
+    .code-toolbar .btn:hover {{ background: var(--btn-hover); }}
+
     .code-box {{
-      background: {code_bg};
-      border: 1px solid {code_border}; border-radius: 10px; padding: 10px 12px;
-      overflow: hidden; position: relative; transition:max-height .25s ease;
-      box-shadow: inset 0 1px 0 {code_inset_highlight};
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      overflow: hidden;
+      position: relative;
+      transition: max-height .25s ease;
+      box-shadow: inset 0 1px 0 var(--code-inset);
     }}
+
     .code-box.collapsed {{ max-height: 180px; }}
+
     .code-box.collapsed::after {{
-      content:""; position:absolute; left:0; right:0; bottom:0; height:48px;
-      background: linear-gradient(180deg, {fade_top} 0%, {fade_mid} 90%, {fade_bottom} 100%);
-      pointer-events:none;
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 52px;
+      background: linear-gradient(180deg, var(--fade-top) 0%, var(--fade-mid) 90%, var(--fade-bottom) 100%);
+      pointer-events: none;
     }}
+
+    pre {{ margin: 0; }}
+
     pre code.hljs {{
-        background: {code_bg} !important;  /* light gray background */
-        white-space: pre-wrap !important;  /* wrap long lines */
-        word-break: break-word;            /* break long words if needed */
-        overflow-x: hidden;                /* no horizontal scrollbar */
+      background: var(--code-bg) !important;
+      white-space: pre-wrap !important;
+      word-break: break-word;
+      overflow-x: hidden;
     }}
+
+    .diagram-shell {{
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: var(--panel);
+      overflow: auto;
+    }}
+
+    .mermaid {{ min-width: 720px; }}
+
     .mermaid svg path,
     .mermaid svg line,
     .mermaid svg rect,
-    .mermaid svg polygon 
-    .mermaid svg text {{
-        fill: {mermaid_text};
-    }}
+    .mermaid svg polygon,
+    .mermaid svg text {{ fill: var(--mermaid-text); }}
+
+    a {{ color: var(--link); text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+
     .footnote {{
       margin-top: 16px;
       font-size: 11px;
-      color: {meta_text};
+      color: var(--muted);
       text-align: right;
+    }}
+
+    @media (max-width: 860px) {{
+      .wrap {{ padding: 14px; }}
+      .panel {{ padding: 14px; }}
+      .info-table th {{ width: 160px; }}
+      .mermaid {{ min-width: 620px; }}
     }}
   </style>
 
-  <!-- Highlight.js theme -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 </head>
 <body>
   <div class="wrap">
     <div class="panel">
-      <h1>{title}</h1>
+      <div class="title-row">
+        <h1>{title}</h1>
+      </div>
       <div class="meta">Generated {date}</div>
+      <div class="chip-row">
+        <span class="chip">Layer: {layer}</span>
+        <span class="chip">Unload: {unload}</span>
+        <span class="chip">Incremental: {incremental}</span>
+      </div>
 
-      <!-- Info table -->
-      <table class="info-table">
+      <table class="info-table" aria-describedby="job metadata">
         <tbody>
-          <tr><th>Layer</th><td>{layer}</td></tr>
           <tr><th>Description</th><td>{description}</td></tr>
           <tr><th>Module</th><td>{module}</td></tr>
-
-          <!-- Job Code row with toggle + copy + highlight -->
-          <tr>
-            <th>Job Code</th>
-            <td>
-              <div class="code-wrap" id="job-code-wrap">
-                <div class="code-toolbar">
-                  <button class="btn" id="job-code-toggle" aria-expanded="false" aria-controls="job-code-box">Show full code</button>
-                  <button class="btn" id="job-code-copy">Copy</button>
-                </div>
-                <div class="code-box collapsed" id="job-code-box">
-                  <pre><code class="language-python">{job_code}</code></pre>
-                </div>
-              </div>
-            </td>
-          </tr>
-
           <tr><th>Module Path</th><td><pre>{module_path}</pre></td></tr>
           <tr><th>Input Tables</th><td><pre>{input_tables}</pre></td></tr>
           <tr><th>Output Table Name</th><td>{output_table_name}</td></tr>
           <tr><th>Partition By</th><td><pre>{partition_by}</pre></td></tr>
-          <tr><th>Unload</th><td>{unload}</td></tr>
-          <tr><th>Incremental</th><td>{incremental}</td></tr>
         </tbody>
       </table>
 
-      <div class="mermaid">
----
-config:
-    theme: 'base'
-    themeVariables:
-        lineColor: '{mermaid_line}'
-        tertiaryColor: '{mermaid_tertiary}'
----
+      <h2>Job Code</h2>
+      <div class="code-wrap" id="job-code-wrap">
+        <div class="code-toolbar">
+          <button class="btn" id="job-code-toggle" aria-expanded="false" aria-controls="job-code-box">Show full code</button>
+          <button class="btn" id="job-code-copy">Copy</button>
+        </div>
+        <div class="code-box collapsed" id="job-code-box">
+          <pre><code class="language-python">{job_code}</code></pre>
+        </div>
+      </div>
+
+      <h2>Lineage</h2>
+      <div class="diagram-shell">
+        <div class="mermaid">
 {mermaid_code}
+        </div>
       </div>
-      <div class="info-table">
-        <h2>    Table Schema</h2>
-        <table class="schema-table" aria-describedby="table schema">
-          <thead>
-            <tr>
-              <th>Column</th>
-              <th>Type</th>
-              <th>Comment</th>
-            </tr>
-          </thead>
-          <tbody>
+
+      <h2>Table Schema</h2>
+      <table class="schema-table" aria-describedby="table schema">
+        <thead>
+          <tr>
+            <th>Column</th>
+            <th>Type</th>
+            <th>Comment</th>
+          </tr>
+        </thead>
+        <tbody>
 {schema_rows}
-          </tbody>
-        </table>
-      </div>
+        </tbody>
+      </table>
+
       <div class="footnote">Created by Bolt-Pipeliner</div>
     </div>
   </div>
 
-  <!-- highlight.js scripts -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
   <script>hljs.highlightAll();</script>
 
   <script type="module">
-    // Mermaid
     import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({{ startOnLoad: true, securityLevel: "loose", theme: "dark" }});
-
-    // Toggle & Copy logic for Job Code
-    const toggleBtn = document.getElementById('job-code-toggle');
-    const copyBtn = document.getElementById('job-code-copy');
-    const codeBox  = document.getElementById('job-code-box');
-
-    function setExpanded(expanded) {{
-      codeBox.classList.toggle('collapsed', !expanded);
-      toggleBtn.setAttribute('aria-expanded', String(expanded));
-      toggleBtn.textContent = expanded ? 'Hide full code' : 'Show full code';
-    }}
-
-    toggleBtn.addEventListener('click', () => {{
-      const expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
-      setExpanded(!expanded);
-    }});
-
-    copyBtn.addEventListener('click', async () => {{
-      const codeText = codeBox.querySelector('code').innerText;
-      try {{
-        await navigator.clipboard.writeText(codeText);
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => (copyBtn.textContent = 'Copy'), 1200);
-      }} catch (e) {{
-        copyBtn.textContent = 'Press Ctrl/Cmd+C';
-        setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
+    mermaid.initialize({{
+      startOnLoad: true,
+      securityLevel: "loose",
+      theme: "base",
+      themeVariables: {{
+        lineColor: "{mermaid_line}",
+        tertiaryColor: "{mermaid_tertiary}",
+        primaryTextColor: "{mermaid_text}",
+        fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, Helvetica"
       }}
     }});
 
-    // Start collapsed
+    const toggleBtn = document.getElementById("job-code-toggle");
+    const copyBtn = document.getElementById("job-code-copy");
+    const codeBox = document.getElementById("job-code-box");
+
+    function setExpanded(expanded) {{
+      codeBox.classList.toggle("collapsed", !expanded);
+      toggleBtn.setAttribute("aria-expanded", String(expanded));
+      toggleBtn.textContent = expanded ? "Hide full code" : "Show full code";
+    }}
+
+    toggleBtn.addEventListener("click", () => {{
+      const expanded = toggleBtn.getAttribute("aria-expanded") === "true";
+      setExpanded(!expanded);
+    }});
+
+    copyBtn.addEventListener("click", async () => {{
+      const codeText = codeBox.querySelector("code").innerText;
+      try {{
+        await navigator.clipboard.writeText(codeText);
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
+      }} catch (e) {{
+        copyBtn.textContent = "Press Ctrl/Cmd+C";
+        setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
+      }}
+    }});
+
     setExpanded(false);
   </script>
 </body>

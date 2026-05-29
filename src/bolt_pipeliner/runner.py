@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import sys
 import types
 from pathlib import Path
 from typing import Any, Iterable
@@ -16,6 +17,41 @@ _BUILTIN_BASE_MODULES: dict[str, str] = {
     "ETLBaseParquetPandas": "bolt_pipeliner.bases.pandas_parquet",
     "ETLBaseParquetPolars": "bolt_pipeliner.bases.polars_parquet",
 }
+
+
+def _guess_project_root(config_path: str | Path, layer_paths: dict[str, str]) -> Path:
+    """Infer the project root used to import user ETL modules.
+
+    Console-script entry points (``bolt run``) may not include the current
+    directory on ``sys.path``. We infer the root from the config location and
+    declared relative ``layers`` paths so imports like ``etl._flatfile.job``
+    resolve reliably.
+    """
+    config_file = Path(config_path).resolve()
+    config_dir = config_file.parent
+
+    rel_layer_paths = [
+        Path(layer_dir)
+        for layer_dir in layer_paths.values()
+        if not Path(layer_dir).is_absolute()
+    ]
+
+    candidates = [config_dir.parent, config_dir, Path.cwd().resolve()]
+    for candidate in candidates:
+        if any((candidate / layer_dir).exists() for layer_dir in rel_layer_paths):
+            return candidate
+
+    return config_dir.parent
+
+
+def _ensure_project_import_path(
+    config_path: str | Path,
+    layer_paths: dict[str, str],
+) -> None:
+    project_root = _guess_project_root(config_path, layer_paths)
+    root_str = str(project_root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
 
 
 def _resolve_base_class(class_name: str) -> type:
@@ -45,6 +81,7 @@ def run(
     layers: Iterable[str] | None = None,
     select: str | None = None,
     layer: str | None = None,
+    verbose: bool = False,
     spark=None,
 ) -> None:
     """Run ETL jobs for the requested selection in declared order.
@@ -61,6 +98,7 @@ def run(
             resolution to this layer (use it to disambiguate when the
             same output_table_name appears in multiple layers). When
             given without ``select``, acts like ``layers=[layer]``.
+        verbose: when True, prints each resolved job before execution.
         spark: optional SparkSession; if None, the local session is
             created lazily.
     """
@@ -77,6 +115,7 @@ def run(
     fixed_schema = configs_section.get("schema")
     incremental_column = configs_section.get("incremental_column")
     layer_paths: dict[str, str] = config.get("layers", {}) or {}
+    _ensure_project_import_path(config_path, layer_paths)
 
     plan: list[tuple[str, dict[str, Any]]]
     if select is not None:
@@ -103,6 +142,8 @@ def run(
 
         profile = resolve_spark_profile(config_path, config)
         spark = create_session(profile.profile, spark_config=profile.spark_config)
+        if verbose:
+            print(f"[bolt] using spark profile={profile.profile!r} config={profile.path}")
 
     for stage, job in plan:
         layer_dir = layer_paths.get(stage)
@@ -115,6 +156,15 @@ def run(
 
         base_cls = _resolve_base_class(job.get("class_name", "ETLBase"))
         bucket = flatfile_location if stage == "flatfile" else output_location
+        if verbose:
+            print(
+                "[bolt] running"
+                f" stage={stage}"
+                f" module={job['module']}"
+                f" output={stage}_{job['output_table_name']}"
+                f" class={job.get('class_name', 'ETLBase')}"
+                f" incremental={job.get('incremental', False)}"
+            )
 
         etl = base_cls(
             spark=spark,
@@ -128,10 +178,24 @@ def run(
             catalog="shared_catalog",
             save_catalog=save_catalog,
             fixed_schema=fixed_schema,
-            incremental_column=incremental_column,
+            incremental_column=job.get("incremental_column", incremental_column),
+            incremental_type=job.get(
+                "incremental_type",
+                configs_section.get("incremental_type", "int"),
+            ),
+            incremental_unit=job.get(
+                "incremental_unit",
+                configs_section.get("incremental_unit", 3),
+            ),
+            incremental_date_grain=job.get(
+                "incremental_date_grain",
+                configs_section.get("incremental_date_grain", "monthly"),
+            ),
         )
         etl.process_data = types.MethodType(module.process_data, etl)
         etl.run()
+        if verbose:
+            print(f"[bolt] completed {stage}.{job['module']}")
 
 
 __all__ = ["run"]

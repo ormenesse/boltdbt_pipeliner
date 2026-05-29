@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Optional
 
 from bolt_pipeliner.config import load_config, resolve_data_locations
-from bolt_pipeliner.runner import _module_import_path, _resolve_base_class
+from bolt_pipeliner.runner import (
+    _ensure_project_import_path,
+    _module_import_path,
+    _resolve_base_class,
+)
 from bolt_pipeliner.sessions.profiles import resolve_spark_profile
 from bolt_pipeliner.testing.runner import run_checks
 
@@ -24,8 +28,12 @@ def execute(
     save_catalog = configs_section.get("catalog", "dev_catalog")
     fixed_schema = configs_section.get("schema")
     incremental_column = configs_section.get("incremental_column")
+    incremental_type = configs_section.get("incremental_type", "int")
+    incremental_unit = configs_section.get("incremental_unit", 3)
+    incremental_date_grain = configs_section.get("incremental_date_grain", "monthly")
     flatfile_location, output_location = resolve_data_locations(config)
     layer_paths: dict[str, str] = config.get("layers", {}) or {}
+    _ensure_project_import_path(config_path, layer_paths)
 
     layers_to_run = [layer] if layer else list(layer_paths.keys())
     spark_profile = resolve_spark_profile(config_path, config)
@@ -71,7 +79,13 @@ def execute(
                 catalog="shared_catalog",
                 save_catalog=save_catalog,
                 fixed_schema=fixed_schema,
-                incremental_column=incremental_column,
+                incremental_column=job.get("incremental_column", incremental_column),
+                incremental_type=job.get("incremental_type", incremental_type),
+                incremental_unit=job.get("incremental_unit", incremental_unit),
+                incremental_date_grain=job.get(
+                    "incremental_date_grain",
+                    incremental_date_grain,
+                ),
             )
             if base_cls.__module__.startswith("bolt_pipeliner.bases.spark"):
                 init_kwargs["spark"] = spark

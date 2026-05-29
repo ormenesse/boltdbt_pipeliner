@@ -31,3 +31,4 @@ def test_run_help_mentions_selector_syntax():
     assert "-s" in out
     assert "--layer" in out
     assert "-l" in out
+    assert "--verbose" in out

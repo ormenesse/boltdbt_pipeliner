@@ -4,6 +4,9 @@ configs:
   schema: demo_spark
   catalog: demo_spark_local
   incremental_column: year_month
+  incremental_type: int
+  incremental_unit: 3
+  incremental_date_grain: monthly
 
 layers:
   flatfile: etl/_flatfile
@@ -75,6 +78,8 @@ silver:
   - module: silver_collision_features
     description: Join crash, vehicle, and person features into a model-ready collision table.
     class_name: bases.local_spark_parquet.LocalSparkParquetBase
+    incremental: true
+    incremental_unit: 2
     input_tables:
       crashes: bronze_crashes
       vehicles: silver_vehicle_crash_features

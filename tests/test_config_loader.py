@@ -2,6 +2,9 @@ from bolt_pipeliner.config.loader import (
     DEFAULT_CLASS_NAME,
     DEFAULT_FLATFILE_LOCATION,
     DEFAULT_INCREMENTAL_COLUMN,
+    DEFAULT_INCREMENTAL_DATE_GRAIN,
+    DEFAULT_INCREMENTAL_TYPE,
+    DEFAULT_INCREMENTAL_UNIT,
     DEFAULT_OUTPUT_LOCATION,
     DEFAULT_SCHEMA,
     load_config,
@@ -25,6 +28,9 @@ def test_loader_applies_defaults_when_missing(write_config):
 
     assert config["configs"]["schema"] == DEFAULT_SCHEMA
     assert config["configs"]["incremental_column"] == DEFAULT_INCREMENTAL_COLUMN
+    assert config["configs"]["incremental_type"] == DEFAULT_INCREMENTAL_TYPE
+    assert config["configs"]["incremental_unit"] == DEFAULT_INCREMENTAL_UNIT
+    assert config["configs"]["incremental_date_grain"] == DEFAULT_INCREMENTAL_DATE_GRAIN
     assert config["configs"]["flatfile_location"] == DEFAULT_FLATFILE_LOCATION
     assert config["configs"]["output_location"] == DEFAULT_OUTPUT_LOCATION
     assert config["bronze"][0]["class_name"] == DEFAULT_CLASS_NAME

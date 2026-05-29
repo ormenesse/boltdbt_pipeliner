@@ -21,6 +21,54 @@ TABLES_DIR = "./outputs/documentation/tables"
 SCHEMA_DIR = "./outputs/schema"
 TEMPLATE_DIR = str(TEMPLATES_DOCS)
 
+DEFAULT_STYLE_COLORS: Dict[str, str] = {
+    "body_background": "#353535ff",
+    "body_text": "#500b3aff",
+    "panel_background": "#f7f7f7",
+    "panel_border": "#dddddd",
+    "panel_shadow": "rgba(0,0,0,.35)",
+    "heading_accent": "#d54e62ff",
+    "rule_color": "#1f2937",
+    "meta_text": "#94a3b8",
+    "table_cell_text": "#555555",
+    "link_text": "#60a5fa",
+    "btn_bg": "#d54e62ff",
+    "btn_text": "#ffffff",
+    "btn_hover_bg": "#b8122d",
+    "code_bg": "#353535ff",
+    "code_border": "#353535ff",
+    "code_inset_highlight": "rgba(255,255,255,.03)",
+    "fade_top": "rgba(11,16,33,0)",
+    "fade_mid": "rgba(11,16,33,.9)",
+    "fade_bottom": "rgba(11,16,33,1)",
+    "mermaid_text": "#111111",
+    "mermaid_line": "#888888",
+    "mermaid_tertiary": "#aaaaaa",
+    "index_accent": "#e31837",
+    "index_accent_hover": "#b8122d",
+    "index_text": "#1a1a1a",
+    "index_page_bg": "#ffffff",
+    "index_panel_bg": "#f7f7f7",
+    "index_border": "#e5e5e5",
+}
+
+
+def resolve_style_colors(style_config: Dict[str, Any]) -> Dict[str, str]:
+    """Return a style palette merged with sane defaults."""
+    resolved = DEFAULT_STYLE_COLORS.copy()
+    raw_colors: Dict[str, Any] = {}
+    if isinstance(style_config, dict):
+        candidate = style_config.get("style_colors", {})
+        if isinstance(candidate, dict):
+            raw_colors = candidate
+
+    for key in DEFAULT_STYLE_COLORS:
+        value = raw_colors.get(key)
+        if isinstance(value, str) and value.strip():
+            resolved[key] = value
+
+    return resolved
+
 @dataclass
 class JobConfig:
     """Configuration for a single ETL job."""
@@ -275,7 +323,7 @@ class JobProcessor:
         job_script_name = f"{job_config.output_table_name}"
         
         # Prepare style configuration
-        style_colors = self.config.style_config["style_colors"]
+        style_colors = resolve_style_colors(self.config.style_config)
         
         return mermaid_page.format(
             title=job_script_name,
@@ -284,7 +332,7 @@ class JobProcessor:
             description=job_config.description,
             layer=job_config.module.split('_')[0].upper(),
             module=job_config.module,
-            job_code=job_code,
+            job_code=escape(job_code),
             module_path=module_path,
             input_tables=self._format_input_tables(job_config.input_tables),
             output_table_name=job_script_name,
@@ -448,14 +496,14 @@ def orchestrator(target_layers: Optional[List[str]] = None, spark=None) -> Tuple
 def build_html(items: List[str]) -> str:
     """Build the main HTML index page."""
     # Color palette
-    style_config = load_yaml_config(STYLE_CONFIG_PATH).get('style_colors')
+    style_config = resolve_style_colors(load_yaml_config(STYLE_CONFIG_PATH))
     colors = {
-        'accent': style_config.get("index_accent", "#1a1a1a"),
-        'accent_hover': style_config.get("index_accent_hover", "#b8122d"),
-        'text': style_config.get("index_text", "#1a1a1a"),
-        'page_bg': style_config.get("index_page_bg", "#ffffff"),
-        'panel_bg': style_config.get("index_panel_bg", "#f7f7f7"),
-        'border': style_config.get("index_border", "#e5e5e5"),
+        'accent': style_config["index_accent"],
+        'accent_hover': style_config["index_accent_hover"],
+        'text': style_config["index_text"],
+        'page_bg': style_config["index_page_bg"],
+        'panel_bg': style_config["index_panel_bg"],
+        'border': style_config["index_border"],
     }
     
     # Copy logo
@@ -517,12 +565,30 @@ def gen_doc(target_layers: Optional[List[str]] = None) -> None:
     tables_name, config = orchestrator(target_layers, spark)
 
     # creating etlbase html
+    style_colors = resolve_style_colors(load_yaml_config(STYLE_CONFIG_PATH))
+    configs_section = config.get("configs", {})
+    fixed_schema = configs_section.get("schema") or "cxdw_dm"
+    save_catalog = configs_section.get("catalog") or "dev_catalog"
+    generated_at = dt.datetime.now().astimezone()
+
     with open(f"{TEMPLATE_DIR}/etl_base_html.txt", 'r', encoding="utf-8") as f:
         etlbasehtml = f.read()
     with open(str(ETL_BASE_SOURCE), 'r', encoding="utf-8") as f:
         etlbasecode = f.read()
     etlbasehtml = etlbasehtml.format(
-        etlbasecode=escape(etlbasecode)
+        etlbasecode=escape(etlbasecode),
+        date=generated_at.strftime("%Y-%m-%d %H:%M:%S"),
+        timezone=generated_at.tzname() or "local",
+        module_path=str(ETL_BASE_SOURCE),
+        fixed_schema=fixed_schema,
+        read_catalog="shared_catalog",
+        write_catalog=save_catalog,
+        iceberg_identifier=f"{save_catalog}.{fixed_schema}.<layer>_<output_table_name>",
+        incremental_column=configs_section.get("incremental_column", "year_month"),
+        incremental_type=configs_section.get("incremental_type", "int"),
+        incremental_unit=configs_section.get("incremental_unit", 3),
+        incremental_date_grain=configs_section.get("incremental_date_grain", "monthly"),
+        **style_colors,
     )
     with open(f"{DOCUMENTATION_DIR}/tables/etlBase.html", 'w', encoding="utf-8") as f:
         f.write(etlbasehtml)

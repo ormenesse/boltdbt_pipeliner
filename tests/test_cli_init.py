@@ -122,7 +122,7 @@ def test_example_job_is_a_tutorial(tmp_path):
     assert "etl_config.yaml" in bronze
     assert "ETLBase" in bronze
     assert "self.spark" in bronze
-    assert "self.year_months" in bronze
+    assert "self.incremental_policy" in bronze
     assert "unload" in bronze
     assert "partition" in bronze.lower()
 
@@ -163,6 +163,9 @@ def test_init_config_uses_location_keys_with_local_defaults(tmp_path):
 
     assert "output_location:" in config
     assert "flatfile_location:" in config
+    assert "incremental_unit:" in config
+    assert "incremental_type:" in config
+    assert "incremental_date_grain:" in config
     assert 'output_location: "data/layers"' in config
     assert 'flatfile_location: "data/flatfiles"' in config
 
