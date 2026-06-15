@@ -368,7 +368,7 @@ flowchart TD
         </tbody>
       </table>
 
-      <div class="footnote">Created by Bolt-Pipeliner</div>
+      <div class="footnote"><a href="https://boltpipeliner-documentation.vercel.app/docs" target="_blank" rel="noreferrer">Created by Bolt-Pipeliner</a></div>
     </div>
   </div>
 

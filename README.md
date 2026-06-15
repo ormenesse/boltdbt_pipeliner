@@ -446,14 +446,14 @@ results          # rendered inline as HTML
 | Target | Output | What you get |
 |---|---|---|
 | `airflow` | `outputs/airflow/{code,dags}/` | One DAG per layer + one standalone Spark script per job. The generator auto-selects an Airflow operator family from your Spark profile (`emr/glue`, `gcp`, `azure`, `k8s`, `databricks`, or local fallback), then emits placeholders for your real cluster/resource identifiers. |
-| `documentation` | `outputs/documentation/` | HTML index + per-table pages with Mermaid lineage. Always emits `outputs/schema/schema.py` for the [Spark-free documentation flow](#documentation-flow-without-spark). |
+| `documentation` | `outputs/documentation/` | HTML index + per-table pages with Mermaid lineage. Always emits `outputs/schema/schema.py`, and now attempts to write `outputs/schema/schema.csv` automatically whenever table schemas can be collected. |
 | `layers` | `outputs/layers/<layer>.py` | One executable script per layer, inlining every job in dependency order. Useful for ad-hoc runs without Airflow. |
 | `notebook` | `outputs/notebook/etl_jobs_notebook.ipynb` | A Jupyter notebook with one cell per job (plus Spark session + ETLBase setup cells). |
 | `all` | (all of the above) | |
 
 The generators read templates from the package (`src/bolt_pipeliner/templates/`). Airflow DAGs include cloud-specific operator skeletons, but you still provide environment values (for example application IDs, cluster names, image URIs, connection IDs).
 
-Every generated documentation page includes the footnote: `Created by Bolt-Pipeliner`.
+Every generated documentation page includes a footer link: [`Created by Bolt-Pipeliner`](https://boltpipeliner-documentation.vercel.app/docs).
 
 ### Smart dependency resolution
 

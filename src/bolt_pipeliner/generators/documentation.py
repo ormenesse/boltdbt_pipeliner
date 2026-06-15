@@ -6,9 +6,11 @@ import shutil
 import yaml
 import sys
 import os
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
+from bolt_pipeliner.bases._io import resolve_data_path
 from bolt_pipeliner.generators._paths import ETL_BASE_SOURCE, TEMPLATES_DOCS
 from bolt_pipeliner.sessions import create_session
 
@@ -20,6 +22,9 @@ DOCUMENTATION_DIR = "./outputs/documentation"
 TABLES_DIR = "./outputs/documentation/tables"
 SCHEMA_DIR = "./outputs/schema"
 TEMPLATE_DIR = str(TEMPLATES_DOCS)
+SCHEMA_BASE_COLUMNS = ["table_name", "col_name", "data_type", "comment"]
+SCHEMA_OUTPUT_COLUMNS = SCHEMA_BASE_COLUMNS + ["parent"]
+COMMON_ID_COLUMN_THRESHOLD = 5
 
 DEFAULT_STYLE_COLORS: Dict[str, str] = {
     "body_background": "#353535ff",
@@ -216,15 +221,239 @@ def get_table_schema(spark, job_script_name: str, schema: str, catalog: str) -> 
             & (table_schema["col_name"] != "")
             & (~table_schema["col_name"].str.startswith("#"))
         )
-        
-        table_schema = table_schema.loc[mask].copy()
+
+        table_schema = table_schema.loc[mask, ["col_name", "data_type", "comment"]].copy()
         table_schema.loc[:, "table_name"] = job_script_name
-        
+
     except Exception as e:
         print(f"Error fetching schema: {e}")
-        table_schema = pd.DataFrame([], columns=['table_name', 'col_name', 'data_type', 'comment'])
-    
-    return table_schema
+        table_schema = pd.DataFrame([], columns=SCHEMA_OUTPUT_COLUMNS)
+
+    return ensure_schema_columns(table_schema)
+
+
+def ensure_schema_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a schema DataFrame with expected columns and normalized types."""
+    if df is None or df.empty:
+        return pd.DataFrame([], columns=SCHEMA_OUTPUT_COLUMNS)
+
+    out = df.copy()
+    for column in SCHEMA_BASE_COLUMNS:
+        if column not in out.columns:
+            out[column] = ""
+    if "parent" not in out.columns:
+        out["parent"] = ""
+
+    out = out[SCHEMA_OUTPUT_COLUMNS].copy()
+    for column in SCHEMA_OUTPUT_COLUMNS:
+        out[column] = out[column].fillna("").astype(str)
+    return out
+
+
+def is_id_column(column_name: str) -> bool:
+    """Identify whether a column name looks like an ID key."""
+    if not isinstance(column_name, str):
+        return False
+    normalized = column_name.strip().lower().replace("-", "_")
+    if normalized == "id":
+        return True
+    return normalized.endswith("_id") or normalized.startswith("id_") or "_id_" in normalized
+
+
+def _column_tokens_without_id(column_name: str) -> set[str]:
+    normalized = str(column_name).strip().lower().replace("-", "_")
+    return {token for token in normalized.split("_") if token and token != "id"}
+
+
+def _format_parent_refs(matches: pd.DataFrame, *, include_table_name: bool) -> str:
+    if matches.empty:
+        return ""
+    refs: List[str] = []
+    for row in matches.itertuples(index=False):
+        if include_table_name:
+            refs.append(f"{row.table_name}.{row.col_name}")
+        else:
+            refs.append(str(row.col_name))
+    return ", ".join(dict.fromkeys(refs))
+
+
+def _resolve_parent_value(
+    column_name: str,
+    previous_schemas: pd.DataFrame,
+    all_schemas: pd.DataFrame,
+) -> str:
+    if previous_schemas.empty:
+        return ""
+
+    normalized_col = str(column_name).strip().lower()
+    previous = previous_schemas.copy()
+    previous["_normalized_col"] = previous["col_name"].str.strip().str.lower()
+    all_rows = all_schemas.copy()
+    all_rows["_normalized_col"] = all_rows["col_name"].str.strip().str.lower()
+
+    exact_matches = (
+        previous.loc[previous["_normalized_col"] == normalized_col, ["table_name", "col_name"]]
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+    if exact_matches.empty:
+        return ""
+
+    if not is_id_column(column_name):
+        return _format_parent_refs(exact_matches, include_table_name=True)
+
+    occurrences = all_rows.loc[
+        all_rows["_normalized_col"] == normalized_col,
+        "table_name",
+    ].nunique()
+    if occurrences < COMMON_ID_COLUMN_THRESHOLD:
+        return _format_parent_refs(exact_matches, include_table_name=True)
+
+    id_candidates = (
+        previous.loc[previous["col_name"].map(is_id_column), ["table_name", "col_name"]]
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+    token_filter = _column_tokens_without_id(column_name)
+    if token_filter:
+        filtered = id_candidates.loc[
+            id_candidates["col_name"].map(
+                lambda value: bool(token_filter.intersection(_column_tokens_without_id(value)))
+            )
+        ]
+        if not filtered.empty:
+            id_candidates = filtered
+
+    if id_candidates.empty:
+        return _format_parent_refs(exact_matches, include_table_name=False)
+    return _format_parent_refs(id_candidates, include_table_name=False)
+
+
+def add_parent_column_for_table(
+    table_schema: pd.DataFrame,
+    all_schemas: pd.DataFrame,
+    previous_tables: List[str],
+) -> pd.DataFrame:
+    """Compute parent-column references for one table schema."""
+    current = ensure_schema_columns(table_schema)
+    if current.empty:
+        return current
+
+    all_rows = ensure_schema_columns(all_schemas)
+    if previous_tables:
+        previous_rows = all_rows.loc[all_rows["table_name"].isin(previous_tables)].copy()
+    else:
+        previous_rows = pd.DataFrame([], columns=SCHEMA_OUTPUT_COLUMNS)
+
+    out = current.copy()
+    out["parent"] = out["col_name"].map(
+        lambda value: _resolve_parent_value(value, previous_rows, all_rows)
+    )
+    return ensure_schema_columns(out)
+
+
+def add_parent_column_to_schemas(schemas: pd.DataFrame, table_order: List[str]) -> pd.DataFrame:
+    """Apply parent-column lineage to every table in generation order."""
+    all_rows = ensure_schema_columns(schemas)
+    if all_rows.empty:
+        return all_rows
+
+    unique_tables = list(dict.fromkeys(all_rows["table_name"].tolist()))
+    ordered_tables = [t for t in table_order if t in unique_tables]
+    ordered_tables.extend([t for t in unique_tables if t not in ordered_tables])
+
+    enriched_frames = []
+    processed_tables: List[str] = []
+    for table_name in ordered_tables:
+        table_rows = all_rows.loc[all_rows["table_name"] == table_name].copy()
+        enriched_frames.append(add_parent_column_for_table(table_rows, all_rows, processed_tables))
+        processed_tables.append(table_name)
+
+    if not enriched_frames:
+        return pd.DataFrame([], columns=SCHEMA_OUTPUT_COLUMNS)
+
+    combined = pd.concat(enriched_frames, ignore_index=True)
+    combined = combined.drop_duplicates(
+        subset=["table_name", "col_name", "data_type", "comment"],
+        keep="first",
+    ).reset_index(drop=True)
+    return ensure_schema_columns(combined)
+
+
+def infer_schema_from_outputs(table_names: List[str], config: Dict[str, Any]) -> pd.DataFrame:
+    """Best-effort schema extraction from parquet datasets written by Spark/Pandas/Polars."""
+    configs_section = config.get("configs", {}) if isinstance(config, dict) else {}
+    output_root = configs_section.get("output_location") or configs_section.get("output_bucket")
+    if not output_root:
+        return pd.DataFrame([], columns=SCHEMA_OUTPUT_COLUMNS)
+
+    try:
+        import pyarrow.dataset as ds
+    except Exception as exc:
+        print(f"Could not infer schema.csv from outputs: {exc}")
+        return pd.DataFrame([], columns=SCHEMA_OUTPUT_COLUMNS)
+
+    inferred_rows: List[Dict[str, str]] = []
+    for table_name in table_names:
+        if table_name == "etlBase":
+            continue
+
+        candidates = [
+            resolve_data_path(table_name, output_root),
+            resolve_data_path(table_name, output_root, default_extension=".parquet"),
+        ]
+        schema_obj = None
+        for candidate in dict.fromkeys(candidates):
+            try:
+                dataset = ds.dataset(candidate, format="parquet")
+                schema_obj = dataset.schema
+                if schema_obj is not None and len(schema_obj) > 0:
+                    break
+            except Exception:
+                continue
+
+        if schema_obj is None:
+            continue
+
+        for field in schema_obj:
+            inferred_rows.append(
+                {
+                    "table_name": table_name,
+                    "col_name": field.name,
+                    "data_type": str(field.type),
+                    "comment": "",
+                }
+            )
+
+    inferred = pd.DataFrame(inferred_rows, columns=SCHEMA_BASE_COLUMNS)
+    return ensure_schema_columns(inferred)
+
+
+def generate_schema_csv(
+    schemas: pd.DataFrame,
+    table_order: List[str],
+    config: Dict[str, Any],
+) -> bool:
+    """Write outputs/schema/schema.csv whenever schema data is available."""
+    collected = ensure_schema_columns(schemas)
+    inferred = infer_schema_from_outputs(table_order, config)
+
+    if not inferred.empty:
+        if collected.empty:
+            collected = inferred
+        else:
+            known_tables = set(collected["table_name"].tolist())
+            missing_rows = inferred.loc[~inferred["table_name"].isin(known_tables)].copy()
+            if not missing_rows.empty:
+                collected = pd.concat([collected, missing_rows], ignore_index=True)
+
+    if collected.empty:
+        return False
+
+    enriched = add_parent_column_to_schemas(collected, table_order)
+    Path(SCHEMA_DIR).mkdir(parents=True, exist_ok=True)
+    enriched.to_csv(f"{SCHEMA_DIR}/schema.csv", index=False)
+    return True
 
 def dataframe_to_schema_rows(df: pd.DataFrame) -> str:
     """
@@ -239,7 +468,7 @@ def dataframe_to_schema_rows(df: pd.DataFrame) -> str:
     Raises:
         ValueError: If required columns are missing
     """
-    required = ["col_name", "data_type", "comment"]
+    required = ["col_name", "data_type", "comment", "parent"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"DataFrame missing required columns: {missing}")
@@ -259,6 +488,7 @@ def dataframe_to_schema_rows(df: pd.DataFrame) -> str:
             f"<td>{row['col_name']}</td>"
             f"<td>{row['data_type']}</td>"
             f"<td>{row['comment']}</td>"
+            f"<td>{row['parent']}</td>"
             f"</tr>"
         )
     
@@ -270,19 +500,19 @@ class JobProcessor:
     def __init__(self, config: DocumentationConfig, spark=None):
         self.config = config
         self.spark = spark
-        self.schemas = self._load_schemas()
+        self.schemas = ensure_schema_columns(self._load_schemas())
         self.documentation_table_names = []
     
     def _load_schemas(self) -> pd.DataFrame:
         """Load table schemas from CSV or initialize empty DataFrame."""
         if self.spark is None:
             try:
-                return pd.read_csv(f'{SCHEMA_DIR}/schema.csv')
+                return ensure_schema_columns(pd.read_csv(f'{SCHEMA_DIR}/schema.csv'))
             except Exception as e:
                 print(f'Could not find schema: {e}')
-                return pd.DataFrame([], columns=['table_name', 'col_name', 'data_type', 'comment'])
+                return pd.DataFrame([], columns=SCHEMA_OUTPUT_COLUMNS)
         else:
-            return pd.DataFrame([], columns=['table_name', 'col_name', 'data_type', 'comment'])
+            return pd.DataFrame([], columns=SCHEMA_OUTPUT_COLUMNS)
     
     def _process_job_dependencies(self, layer: str, job: Dict[str, Any], config: Dict[str, Any]) -> Tuple[List, List]:
         """Process job dependencies and return nodes and edges."""
@@ -292,12 +522,20 @@ class JobProcessor:
     def _get_job_schema(self, job_script_name: str, schema: str, catalog: str) -> pd.DataFrame:
         """Get schema for a job, either from Spark or CSV."""
         if self.spark is not None:
-            table_schema = get_table_schema(self.spark, job_script_name, schema, catalog)
+            table_schema = ensure_schema_columns(
+                get_table_schema(self.spark, job_script_name, schema, catalog)
+            )
             if len(table_schema) > 0:
-                self.schemas = pd.concat([self.schemas, table_schema], axis=0)
+                self.schemas = pd.concat([self.schemas, table_schema], axis=0, ignore_index=True)
+                self.schemas = self.schemas.drop_duplicates(
+                    subset=["table_name", "col_name", "data_type", "comment"],
+                    keep="first",
+                ).reset_index(drop=True)
             return table_schema
         else:
-            return self.schemas.loc[self.schemas['table_name'] == job_script_name, :]
+            return ensure_schema_columns(
+                self.schemas.loc[self.schemas['table_name'] == job_script_name, :]
+            )
     
     def _read_job_code(self, module_path: str) -> str:
         """Read job code from module file."""
@@ -361,6 +599,11 @@ class JobProcessor:
         catalog = config.get('configs',{}).get('catalog',None)
         # Get schema
         table_schema = self._get_job_schema(job_script_name, schema, catalog)
+        table_schema = add_parent_column_for_table(
+            table_schema,
+            self.schemas,
+            self.documentation_table_names,
+        )
         schema_rows = dataframe_to_schema_rows(table_schema)
         
         # Process dependencies
@@ -453,12 +696,15 @@ def setup_directories() -> None:
     os.makedirs(TABLES_DIR, exist_ok=True)
     os.makedirs(SCHEMA_DIR, exist_ok=True)
 
-def orchestrator(target_layers: Optional[List[str]] = None, spark=None) -> Tuple[List[str], Dict[str, Any]]:
+def orchestrator(
+    target_layers: Optional[List[str]] = None,
+    spark=None,
+) -> Tuple[List[str], Dict[str, Any], pd.DataFrame]:
     """
     Generate all the orchestration for documentation.
     
     Returns:
-        Tuple of (documentation_table_names, config)
+        Tuple of (documentation_table_names, config, collected_schemas)
     """
     # Load configurations
     etl_config = load_yaml_config(DEFAULT_CONFIG_PATH)
@@ -491,7 +737,11 @@ def orchestrator(target_layers: Optional[List[str]] = None, spark=None) -> Tuple
         job_count = layer_processor.process_layer(layer, module_prefix, etl_config, group_styles, schema)
         print(f"Finished Layer: {layer} with generation of ({job_count} html documents)")
     
-    return layer_processor.job_processor.documentation_table_names, etl_config
+    return (
+        layer_processor.job_processor.documentation_table_names,
+        etl_config,
+        ensure_schema_columns(layer_processor.job_processor.schemas),
+    )
 
 def build_html(items: List[str]) -> str:
     """Build the main HTML index page."""
@@ -532,10 +782,12 @@ def generate_schema_script(tables_name: List[str], config: Dict[str, Any]) -> No
     with open(f"{TEMPLATE_DIR}/get_table_schemas.txt", 'r', encoding="utf-8") as f:
         function_table_schemas = f.read()
     
+    serialized_tables = ",".join(f'"{name}"' for name in tables_name)
+
     function_table_schemas = function_table_schemas.format(
         schema=config['configs']['schema'],
         catalog=config['configs']['catalog'],
-        tables_name='"'+'","'.join(tables_name)+'"'
+        tables_name=serialized_tables
     )
     
     with open(f"{SCHEMA_DIR}/schema.py", 'w', encoding="utf-8") as f:
@@ -562,7 +814,7 @@ def gen_doc(target_layers: Optional[List[str]] = None) -> None:
               "and rerun `bolt generate documentation`.")
 
     # Generate documentation
-    tables_name, config = orchestrator(target_layers, spark)
+    tables_name, config, schemas = orchestrator(target_layers, spark)
 
     # creating etlbase html
     style_colors = resolve_style_colors(load_yaml_config(STYLE_CONFIG_PATH))
@@ -593,12 +845,14 @@ def gen_doc(target_layers: Optional[List[str]] = None) -> None:
     with open(f"{DOCUMENTATION_DIR}/tables/etlBase.html", 'w', encoding="utf-8") as f:
         f.write(etlbasehtml)
     tables_name.insert(0,"etlBase")
+    schema_table_names = [table for table in tables_name if table != "etlBase"]
 
     # Always emit the schema-extraction script. Useful in two flows:
     # (1) The user has no local Spark — they run schema.py in their cluster
     #     and paste the output into ./outputs/schema/schema.csv.
     # (2) The user wants to refresh schemas later without re-running docs.
-    generate_schema_script(tables_name, config)
+    generate_schema_script(schema_table_names, config)
+    schema_csv_generated = generate_schema_csv(schemas, schema_table_names, config)
 
     # Generate main HTML index
     with open(f"{DOCUMENTATION_DIR}/index.html", 'w', encoding="utf-8") as f:
@@ -606,7 +860,12 @@ def gen_doc(target_layers: Optional[List[str]] = None) -> None:
 
     print("\nDocumentation generation completed!"
           "\nYou may find the documentation under outputs/documentation/index.html"
-          "\nSchema-extraction script written to outputs/schema/schema.py")
+          "\nSchema-extraction script written to outputs/schema/schema.py"
+          + (
+              "\nschema.csv generated at outputs/schema/schema.csv"
+              if schema_csv_generated
+              else "\nCould not auto-generate outputs/schema/schema.csv."
+          ))
 
 if __name__ == "__main__":
     target_layers = sys.argv[1:] if len(sys.argv) > 1 else None

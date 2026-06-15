@@ -302,6 +302,7 @@
             <th>Column</th>
             <th>Type</th>
             <th>Comment</th>
+            <th>Parent</th>
           </tr>
         </thead>
         <tbody>
@@ -309,7 +310,7 @@
         </tbody>
       </table>
 
-      <div class="footnote">Created by Bolt-Pipeliner</div>
+      <div class="footnote"><a href="https://boltpipeliner-documentation.vercel.app/docs" target="_blank" rel="noreferrer">Created by Bolt-Pipeliner</a></div>
     </div>
   </div>
 

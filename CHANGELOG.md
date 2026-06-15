@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-06-15
+
+### Added
+- Documentation schema rendering now includes a `parent` column generated from previously documented tables:
+  - non-ID fields list matching parent references as `table_name.column_name`;
+  - high-frequency ID fields (5+ table occurrences) list only related ID columns.
+
+### Changed
+- Documentation footers now link `Created by Bolt-Pipeliner` to https://boltpipeliner-documentation.vercel.app/docs on index, table, and ETL base pages.
+- `bolt generate documentation` now attempts to produce `outputs/schema/schema.csv` automatically in all engines:
+  - writes from Spark `DESCRIBE` output when Spark is available;
+  - falls back to best-effort parquet schema inference from `configs.output_location` when Spark is unavailable;
+  - still emits `outputs/schema/schema.py` for manual Spark extraction workflows.
+
 ### Changed
 - Documentation templates for generated table pages were refreshed and aligned with `configs/style_config.yaml`:
   - `etl_base_html.txt` now uses style placeholders instead of hardcoded colors and reflects the current generic incremental policy (`incremental_column`, `incremental_type`, `incremental_unit`, `incremental_date_grain`).
@@ -96,7 +110,8 @@ Notebook generation spark configuration.
 - The scaffolder's "Next steps" message now points at `python main.py --help` / `python generate.py documentation` when vendoring is enabled.
 - Added `Topic :: Scientific/Engineering :: Information Analysis` and `Intended Audience :: Information Technology` classifiers.
 
-[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.7
 [0.2.5]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.5
 [0.2.3]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.3
 [0.2.2]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.2
