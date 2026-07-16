@@ -9,9 +9,10 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import questionary
+import yaml
 
 from bolt_pipeliner.generators._paths import PACKAGE_ROOT
 
@@ -22,6 +23,7 @@ SCAFFOLD_DIR = PACKAGE_ROOT / "templates" / "scaffold"
 # over any pip-installed bolt_pipeliner — the project is reproducible even if
 # bolt_pipeliner is later yanked from PyPI or the user's machine.
 VENDOR_DIRNAME = "_boltpipeliner"
+ENVIRONMENT_PROFILE_FILENAME = "bolt_environment.yaml"
 
 ARCHITECTURE_LAYERS: dict[str, list[str]] = {
     "flat": ["flatfile"],
@@ -352,6 +354,48 @@ def _render_etl_config(ans: InitAnswers) -> str:
         f"{flatfile_section}"
         f"{other_sections}"
     )
+
+
+def _render_environment_profile(ans: InitAnswers) -> str:
+    """Render the non-secret decisions made by ``bolt init``.
+
+    ``etl_config.yaml`` remains the runtime source of truth. This profile keeps
+    wizard decisions that an agent needs when it later adapts the project,
+    including the execution environment, which is otherwise held only in
+    ``InitAnswers`` and lost after scaffolding completes.
+    """
+    layer_paths = {
+        name: f"etl/{_layer_dir(name)}"
+        for name in ans.layers
+    }
+    profile: dict[str, Any] = {
+        "schema_version": 1,
+        "project": {
+            "name": ans.project_name,
+        },
+        "framework": {
+            "engine": ans.engine,
+            "default_class_name": ENGINE_TO_BASE_CLASS[ans.engine],
+            "layers": ans.layers,
+            "layer_paths": layer_paths,
+            "vendor": ans.vendor,
+        },
+        "execution": {
+            "environment": ans.execution_env,
+            "spark_profile": ans.spark_profile,
+        },
+        "storage": {
+            "output_location": ans.output_location,
+            "flatfile_location": ans.flatfile_location,
+        },
+        "features": {
+            "ml": ans.enable_ml,
+        },
+    }
+    if ans.extra_layer_names:
+        profile["framework"]["extra_layer_names"] = ans.extra_layer_names
+
+    return yaml.safe_dump(profile, sort_keys=False)
 
 
 _LAYER_LOAD_NOTES = {
@@ -940,6 +984,11 @@ def _scaffold(ans: InitAnswers) -> list[Path]:
     style_path = root / "configs" / "style_config.yaml"
     _write_file(style_path, _render_style_config(ans.layers))
     written.append(style_path)
+
+    # Persist wizard decisions so agents can re-read the environment later.
+    profile_path = root / "configs" / ENVIRONMENT_PROFILE_FILENAME
+    _write_file(profile_path, _render_environment_profile(ans))
+    written.append(profile_path)
 
     # Per-layer directories with one example job each
     for layer in ans.layers:

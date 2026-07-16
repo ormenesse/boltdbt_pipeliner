@@ -2,6 +2,7 @@ import subprocess
 import sys
 
 import pytest
+import yaml
 
 from bolt_pipeliner.cli.init import (
     VENDOR_DIRNAME,
@@ -18,6 +19,7 @@ def test_minimal_preset_produces_pandas_flatfile_project(tmp_path):
 
     assert (target / "configs" / "etl_config.yaml").is_file()
     assert (target / "configs" / "style_config.yaml").is_file()
+    assert (target / "configs" / "bolt_environment.yaml").is_file()
     assert (target / "etl" / "_flatfile" / "flatfile_example.py").is_file()
     assert (target / "etl" / "0_bronze" / "bronze_example.py").is_file()
     assert (target / "macros" / "__init__.py").is_file()
@@ -39,6 +41,27 @@ def test_style_config_includes_color_block_for_chosen_layers(tmp_path):
     # 'raw' is always emitted because the docs generator uses it for upstream
     # source nodes regardless of the project's declared layers.
     assert "    raw:" in style
+
+
+def test_init_persists_environment_profile(tmp_path):
+    target = tmp_path / "demo"
+    execute("demo", target_dir=target, preset="diamond", vendor=False)
+
+    profile = yaml.safe_load(
+        (target / "configs" / "bolt_environment.yaml").read_text(encoding="utf-8")
+    )
+
+    assert profile["schema_version"] == 1
+    assert profile["project"]["name"] == "demo"
+    assert profile["framework"]["engine"] == "pyspark"
+    assert profile["framework"]["default_class_name"] == "ETLBase"
+    assert profile["framework"]["vendor"] is False
+    assert profile["framework"]["layer_paths"]["diamond"] == "etl/3_diamond"
+    assert profile["execution"] == {
+        "environment": "airflow",
+        "spark_profile": "local",
+    }
+    assert profile["features"]["ml"] is True
 
 
 def test_style_config_falls_back_for_unknown_layer_names(tmp_path):
