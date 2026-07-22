@@ -18,6 +18,8 @@ The framework is inspired by dbt's `tests:` ergonomics but stays Python-first: j
 
 ---
 
+[![skills.sh](https://skills.sh/b/ormenesse/boltdbt_pipeliner)](https://skills.sh/ormenesse/boltdbt_pipeliner)
+
 ## Table of contents
 
 1. [Installation](#installation)
