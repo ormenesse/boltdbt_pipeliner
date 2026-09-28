@@ -30,7 +30,7 @@ jobs:
         run: ruff check src/ tests/
 
       - name: Type-check
-        run: mypy src/bolt_pipeliner
+        run: mypy --python-version "${{ matrix.python-version }}" src/bolt_pipeliner
 
       - name: Test
         run: pytest -q

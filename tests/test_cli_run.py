@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typer.testing import CliRunner
 
 from bolt_pipeliner.cli.app import app
@@ -26,7 +28,7 @@ def test_run_help_mentions_selector_syntax():
     """
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
-    out = result.stdout
+    out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
     assert "--select" in out
     assert "-s" in out
     assert "--layer" in out
