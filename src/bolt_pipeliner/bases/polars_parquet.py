@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, cast
 
 import polars as pl
 import pyarrow as pa
@@ -145,7 +145,7 @@ class ETLBaseParquetPolars:
             return pl.read_parquet(self.dataset_path, **self.storage_options)
         except Exception:
             table = ds.dataset(self.dataset_path, format="parquet").to_table()
-            return pl.from_arrow(table)
+            return cast(pl.DataFrame, pl.from_arrow(table))
 
     def _normalize_incremental_polars(self, df: pl.DataFrame, *, frame_name: str) -> pl.DataFrame:
         marker = "__bp_incremental_value"

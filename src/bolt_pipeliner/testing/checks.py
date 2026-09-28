@@ -48,7 +48,8 @@ def _is_polars(df: Any) -> bool:
 
 
 def _is_pandas(df: Any) -> bool:
-    return type(df).__module__.startswith("pandas.")
+    module = type(df).__module__
+    return module == "pandas" or module.startswith("pandas.")
 
 
 def _row_count(df: Any) -> int:

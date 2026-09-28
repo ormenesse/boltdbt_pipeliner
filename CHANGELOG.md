@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-27
+
 ### Added
 - Databricks Spark session support: reuse an active Jobs/notebook session, create a session on a classic cluster, or connect to serverless with Databricks Connect.
 - Configurable `configs.source_catalog` for two-part bronze inputs and `table_format` for explicit Spark table providers such as Iceberg.
 - Generated projects now include a `requirements.txt` with framework and engine dependencies.
+- An installable `bolt-pipeliner` agent skill and generated `configs/bolt_environment.yaml` profiles recording non-secret scaffolding decisions.
 
 ### Changed
 - New Databricks Spark projects use `ETLBaseDelta` and schema-qualified Delta tables. The Delta base now honors `configs.schema` for reads and writes while preserving its legacy identifiers when no schema is configured.
@@ -21,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bronze reads accept fully qualified `catalog.schema.table` Unity Catalog references without prepending a fourth identifier component; two-part references continue to use the source catalog.
 - Spark Iceberg, Delta, and Parquet bases no longer call `.cache()` during writes, which Databricks serverless does not support.
 - Package builds no longer fail on setuptools versions that disagree about the accepted `[project].license` metadata form; the `LICENSE` file remains included in distributions.
+- Data-quality checks recognize Pandas 3 DataFrames; CI installs the optional engines needed by its tests and runs the repository's baseline Ruff rules.
 
 ## [0.2.7] - 2026-06-15
 
@@ -125,7 +129,8 @@ Notebook generation spark configuration.
 - The scaffolder's "Next steps" message now points at `python main.py --help` / `python generate.py documentation` when vendoring is enabled.
 - Added `Topic :: Scientific/Engineering :: Information Analysis` and `Intended Audience :: Information Technology` classifiers.
 
-[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/ormenesse/boltdbt_pipeliner/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.3.0
 [0.2.7]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.7
 [0.2.5]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.5
 [0.2.3]: https://github.com/ormenesse/boltdbt_pipeliner/releases/tag/v0.2.3

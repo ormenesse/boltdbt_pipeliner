@@ -6,8 +6,7 @@ import pytest
 import yaml
 
 nbformat = pytest.importorskip("nbformat")
-
-from bolt_pipeliner.generators import notebook as notebook_gen
+notebook_gen = pytest.importorskip("bolt_pipeliner.generators.notebook")
 
 
 def _write_yaml(path: Path, content: dict) -> None:
