@@ -314,7 +314,11 @@ def _layer_dir(layer_name: str) -> str:
 
 
 def _render_etl_config(ans: InitAnswers) -> str:
-    base_class = ENGINE_TO_BASE_CLASS[ans.engine]
+    base_class = (
+        "ETLBaseDelta"
+        if ans.engine == "pyspark" and ans.spark_profile == "databricks"
+        else ENGINE_TO_BASE_CLASS[ans.engine]
+    )
     layers_yaml = "\n".join(
         f"  {name}: etl/{_layer_dir(name)}" for name in ans.layers
     )
@@ -342,6 +346,7 @@ def _render_etl_config(ans: InitAnswers) -> str:
         f"  flatfile_location: \"{ans.flatfile_location}\"\n"
         f"  schema: {ans.project_name}\n"
         "  catalog: dev_catalog\n"
+        "  source_catalog: shared_catalog  # for two-part bronze source references\n"
         "  incremental_column: year_month\n"
         "  incremental_type: int\n"
         "  incremental_unit: 3\n"
@@ -362,9 +367,9 @@ _LAYER_LOAD_NOTES = {
         "        Example value: `\"raw/storm_events.csv\"`.\n"
     ),
     "bronze": (
-        "        Bronze values can take two shapes:\n"
-        "          • `\"<schema>.<table>\"` (contains a dot) → read from the project's\n"
-        "            *shared* catalog (raw ingestion zone, e.g. `raw.crm_account`).\n"
+        "        Bronze values can take three shapes:\n"
+        "          • `\"<catalog>.<schema>.<table>\"` → read exactly that source.\n"
+        "          • `\"<schema>.<table>\"` → read from configs.source_catalog.\n"
         "          • `\"<bare_table>\"` → read from the project's own catalog like a\n"
         "            silver/gold job. Useful for chained bronze refinements.\n"
     ),
@@ -380,7 +385,7 @@ def _layer_load_note(layer: str) -> str:
     return _LAYER_LOAD_NOTES.get(layer, _DEFAULT_LAYER_LOAD_NOTE.format(layer=layer))
 
 
-def _render_example_job(layer: str, engine: str) -> str:
+def _render_example_job(layer: str, engine: str, base_class: str | None = None) -> str:
     """Render a tutorial-style example job for the given layer + engine.
 
     Most users haven't seen the ETLBase / input_tables contract before, so the
@@ -420,6 +425,11 @@ def _render_example_job(layer: str, engine: str) -> str:
         )
 
     load_note = _layer_load_note(layer)
+    manual_write = (
+        "self._write_delta(df) (target: self._write_table)"
+        if base_class == "ETLBaseDelta"
+        else "self._create_table(df) / self._replace_table_partitions(df)"
+    )
 
     return (
         f"\"\"\"Example {layer} ETL job — tutorial template.\n"
@@ -451,7 +461,7 @@ def _render_example_job(layer: str, engine: str) -> str:
         "                                    (window/append/overwrite).\n"
         "          • self.partition_by      Echo of the YAML `partition_by:` list.\n"
         "          • self.incremental       Echo of the YAML `incremental:` flag.\n"
-        "          • self._create_table(df) / self._replace_table_partitions(df)\n"
+        f"          • {manual_write}\n"
         "                                    Manual write helpers — pair with\n"
         "                                    `unload: false` for memory-heavy jobs.\n"
         "\n"
@@ -485,8 +495,7 @@ def _render_example_job(layer: str, engine: str) -> str:
         f"    {df_type}\n"
         f"        Persisted by ETLBase to `{layer}_<output_table_name>` (partitioned\n"
         "        per `partition_by:`). If `unload: false` is set in the YAML, write\n"
-        "        partitions yourself via `self._create_table` /\n"
-        "        `self._replace_table_partitions` and return an empty DataFrame\n"
+        f"        partitions yourself via `{manual_write}` and return an empty DataFrame\n"
         "        instead — ETLBase will skip its own unload step.\n"
         "    \"\"\"\n"
         "    # 1. Pick a table by its declared YAML alias. The example below grabs\n"
@@ -810,12 +819,42 @@ def _render_model_notebook_ipynb(engine: str) -> str:
 # missing dir and Python falls back to the installed package.
 
 _SHIM_BOOTSTRAP = (
+    "import os\n"
     "import pathlib\n"
     "import sys\n"
     "\n"
-    f"_VENDOR = pathlib.Path(__file__).resolve().parent / \"{VENDOR_DIRNAME}\"\n"
+    "try:\n"
+    "    _ROOT = pathlib.Path(__file__).resolve().parent\n"
+    "except NameError:\n"
+    "    # Databricks spark_python_task may exec this file without __file__.\n"
+    "    _ROOT = None\n"
+    "    _candidates = [os.environ.get('BOLT_PROJECT_ROOT'), sys.argv[0], os.getcwd()]\n"
+    "    for _candidate in _candidates:\n"
+    "        if not _candidate:\n"
+    "            continue\n"
+    "        _path = pathlib.Path(_candidate).resolve()\n"
+    "        _path = _path.parent if _path.is_file() else _path\n"
+    "        if (_path / 'configs' / 'etl_config.yaml').is_file():\n"
+    "            _ROOT = _path\n"
+    "            break\n"
+    "    if _ROOT is None:\n"
+    "        raise RuntimeError('Cannot locate Bolt project; set BOLT_PROJECT_ROOT '"
+    "'to the project directory for Databricks Jobs')\n"
+    "    os.chdir(_ROOT)  # resolve relative config and layer paths in Jobs\n"
+    f"_VENDOR = _ROOT / \"{VENDOR_DIRNAME}\"\n"
+    "if str(_ROOT) not in sys.path:\n"
+    "    sys.path.insert(0, str(_ROOT))\n"
     "if _VENDOR.is_dir():\n"
     "    sys.path.insert(0, str(_VENDOR))\n"
+)
+
+_SHIM_EXIT = (
+    "    try:\n"
+    "        {call}\n"
+    "    except SystemExit as exc:\n"
+    "        # Databricks Jobs marks even SystemExit(0) as a task failure.\n"
+    "        if exc.code not in (0, None):\n"
+    "            raise\n"
 )
 
 
@@ -835,7 +874,7 @@ def _render_bolt_shim() -> str:
         "from bolt_pipeliner.cli.app import main\n"
         "\n"
         "if __name__ == \"__main__\":\n"
-        "    main()\n"
+        + _SHIM_EXIT.format(call="main()")
     )
 
 
@@ -857,7 +896,7 @@ def _render_run_shim() -> str:
         "from bolt_pipeliner.cli.app import app\n"
         "\n"
         "if __name__ == \"__main__\":\n"
-        "    app([\"run\", *sys.argv[1:]])\n"
+        + _SHIM_EXIT.format(call='app(["run", *sys.argv[1:]])')
     )
 
 
@@ -879,7 +918,7 @@ def _render_generate_shim() -> str:
         "from bolt_pipeliner.cli.app import app\n"
         "\n"
         "if __name__ == \"__main__\":\n"
-        "    app([\"generate\", *sys.argv[1:]])\n"
+        + _SHIM_EXIT.format(call='app(["generate", *sys.argv[1:]])')
     )
 
 
@@ -920,6 +959,17 @@ def _write_file(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _render_requirements(ans: InitAnswers) -> str:
+    requirements = ["PyYAML>=6.0,<7", "typer>=0.12,<1", "questionary>=2.0,<3"]
+    if ans.engine == "pyspark" and ans.spark_profile != "databricks":
+        requirements.append("pyspark>=3.5")
+    elif ans.engine == "pandas":
+        requirements.extend(["pandas>=2.0,<3", "pyarrow>=14.0", "numpy>=2.0"])
+    elif ans.engine == "polars":
+        requirements.extend(["polars>=1.0", "pyarrow>=14.0"])
+    return "\n".join(requirements) + "\n"
+
+
 def _scaffold(ans: InitAnswers) -> list[Path]:
     """Materialize the project tree. Returns the list of written paths."""
     written: list[Path] = []
@@ -936,6 +986,10 @@ def _scaffold(ans: InitAnswers) -> list[Path]:
     _write_file(cfg_path, _render_etl_config(ans))
     written.append(cfg_path)
 
+    requirements_path = root / "requirements.txt"
+    _write_file(requirements_path, _render_requirements(ans))
+    written.append(requirements_path)
+
     # style_config.yaml — required by `bolt generate documentation`
     style_path = root / "configs" / "style_config.yaml"
     _write_file(style_path, _render_style_config(ans.layers))
@@ -950,7 +1004,16 @@ def _scaffold(ans: InitAnswers) -> list[Path]:
             "flatfile_example" if layer == "flatfile" else f"{layer}_example"
         )
         job_path = layer_dir / f"{module_name}.py"
-        _write_file(job_path, _render_example_job(layer, ans.engine))
+        _write_file(
+            job_path,
+            _render_example_job(
+                layer,
+                ans.engine,
+                "ETLBaseDelta"
+                if ans.engine == "pyspark" and ans.spark_profile == "databricks"
+                else ENGINE_TO_BASE_CLASS[ans.engine],
+            ),
+        )
         written.append(job_path)
 
     # Spark profile config (if applicable)
@@ -1039,6 +1102,9 @@ def _scaffold(ans: InitAnswers) -> list[Path]:
         f"Bolt Pipeliner project — engine: **{ans.engine}**, layers: **{layers_str}**.\n\n"
         f"{vendor_note}"
         "## Usage\n\n"
+        "Install the dependencies with `pip install -r requirements.txt`. On "
+        "Databricks Jobs, Spark is supplied by the runtime; for local "
+        "Databricks Connect use `pip install bolt_pipeliner[spark]`.\n\n"
         "```bash\n"
         "# Run the pipeline (all layers, or pass --bronze / --silver / ...)\n"
         "python main.py\n"

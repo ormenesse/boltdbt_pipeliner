@@ -175,9 +175,10 @@ def run(
             partition_by=job.get("partition_by", []),
             unload=job.get("unload", True),
             incremental=job.get("incremental", False),
-            catalog="shared_catalog",
+            catalog=configs_section.get("source_catalog", "shared_catalog"),
             save_catalog=save_catalog,
             fixed_schema=fixed_schema,
+            table_format=job.get("table_format", configs_section.get("table_format")),
             incremental_column=job.get("incremental_column", incremental_column),
             incremental_type=job.get(
                 "incremental_type",

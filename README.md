@@ -2,7 +2,7 @@
 
 [Web Documentation can be found here](https://boltpipeliner-documentation.vercel.app/docs)
 
-A config-driven ETL framework for **Apache Spark + Iceberg**, **Pandas**, and **Polars**, with sibling base classes for **Spark + Delta** and **Spark + Parquet**. Pipelines are declared in a single YAML file and executed through one CLI:
+A config-driven ETL framework for **Apache Spark**, **Pandas**, and **Polars**, with base classes for **Delta**, **Spark-managed tables** (including Iceberg with an explicit provider), and **Parquet**. Pipelines are declared in a single YAML file and executed through one CLI:
 
 ```bash
 bolt init my_project --preset medallion
@@ -139,7 +139,7 @@ Each shim prepends `_boltpipeliner/` to `sys.path` before importing `bolt_pipeli
 
 - The project runs end-to-end on a fresh clone — no `pip install bolt_pipeliner` required.
 - The version of the framework that ships with the repo is the version that runs, so a checkout from six months ago still produces the same artifacts.
-- Downstream consumers (CI, Airflow workers, Docker images) only need `pip install -r requirements.txt` for engine deps (PySpark / Pandas / Polars) plus YAML/Typer, not the framework itself.
+- Downstream consumers (CI, Airflow workers, Docker images) can use the scaffolded `requirements.txt` for YAML/Typer/Questionary and engine dependencies, not the framework itself. Databricks runtimes supply PySpark; use `pip install bolt_pipeliner[spark]` for local Databricks Connect.
 
 If you'd rather rely on a pip-installed copy, pass `--no-vendor`:
 
@@ -212,6 +212,8 @@ configs:
   flatfile_location: "data/flatfiles"
   schema: my_project          # destination schema (Iceberg namespace, Snowflake schema, …)
   catalog: dev_catalog        # destination catalog for non-bronze reads/writes
+  source_catalog: shared_catalog # prefix for two-part bronze source references
+  table_format: iceberg       # optional provider for ETLBase writes; omit for session default
   incremental_column: anomes
   incremental_type: int           # int | date
   incremental_unit: 3             # -1/overwrite, 0/append, or N>0 window
@@ -267,6 +269,7 @@ silver:
 | `input_tables` | yes | Dict of alias → upstream table or file. Peco-style `_input_tables:` is normalized to `input_tables:` at load time. |
 | `output_table_name` | yes | Becomes `{layer}_{output_table_name}` in the destination. |
 | `class_name` | no (default `ETLBase`) | Picks the base class. Built-ins: `ETLBase`, `ETLBaseDelta`, `ETLBaseParquet`, `ETLBaseParquetPandas`, `ETLBaseParquetPolars`. Also accepts dotted paths like `mypkg.bases.MyCustom`. |
+| `table_format` | no | Provider for `ETLBase` when creating tables (e.g. `iceberg`); otherwise the Spark session's default provider is used. Can also be set under root `configs:`. |
 | `partition_by` | no | List of column names. |
 | `incremental` | no (default false) | See [Incremental processing](#incremental-processing). |
 | `incremental_column` | no | Per-job override for the root `configs.incremental_column`. |
@@ -285,13 +288,17 @@ Five sibling base classes ship in `bolt_pipeliner.bases.*`. They expose the same
 
 | `class_name` | Engine | Storage | When to use |
 |---|---|---|---|
-| `ETLBase` (default) | PySpark | Iceberg (Glue) | Large-scale ETL with ACID Iceberg tables. |
-| `ETLBaseDelta` | PySpark | Delta (Synapse) | Synapse / Databricks Delta lake. |
+| `ETLBase` (default) | PySpark | Session's default table provider (or explicit `table_format: iceberg`) | Spark-managed tables; specify a provider when the format matters. |
+| `ETLBaseDelta` | PySpark | Delta | Synapse / Databricks Delta lake; honors `configs.catalog` and `configs.schema`. |
 | `ETLBaseParquet` | PySpark | Parquet on configurable URI/path | Spark without a metastore. |
 | `ETLBaseParquetPandas` | Pandas + PyArrow | Parquet on configurable URI/path | Notebook / single-node ETL. |
 | `ETLBaseParquetPolars` | Polars + PyArrow | Parquet on configurable URI/path | Single-node ETL with Polars ergonomics. |
 
 Engines are imported **lazily**: importing `bolt_pipeliner` does not pull in PySpark / Polars / Pandas. Engine modules are loaded only when a job actually instantiates one. You can therefore run a pure-Pandas project without installing PySpark.
+
+For Databricks projects, select the `databricks` Spark profile in `bolt init`: new Spark jobs use `ETLBaseDelta` and write to `<catalog>.<schema>.<layer>_<table>`. Existing `ETLBase` jobs still use the session's default table provider (Delta on Databricks); specifying `table_format: iceberg` opts into actual Iceberg writes on a Spark runtime with Iceberg support.
+
+Bronze Spark table sources (`ETLBase` and `ETLBaseDelta`) can be bare project tables, two-part `schema.table` names (prefixed with `configs.source_catalog`, default `shared_catalog`), or complete three-part `catalog.schema.table` Unity Catalog identifiers. The latter are read without modification.
 
 To register your own base class, point `class_name:` at a dotted path:
 
@@ -468,9 +475,12 @@ The order of jobs inside each layer in YAML is **irrelevant** — the generators
 | Profile | Module | Status |
 |---|---|---|
 | `local` | `sessions/local.py` | Implemented — returns the active SparkSession or builds one. |
-| `databricks`, `emr`, `glue`, `gcp`, `azure`, `k8s` | `sessions/<profile>.py` | Stubs today; planned. |
+| `databricks` | `sessions/databricks.py` | Reuses an active Jobs/notebook Spark session or connects to serverless through Databricks Connect when run outside one. |
+| `emr`, `glue`, `gcp`, `azure`, `k8s` | `sessions/<profile>.py` | Stubs today; planned. |
 
 `bolt run`, `bolt test`, notebook generation, and Airflow generation auto-load `configs/spark/<profile>.toml`. Override profile selection via `BOLT_SPARK_PROFILE` (or `configs.spark_profile` in `etl_config.yaml`).
+
+Databricks serverless rejects Spark DataFrame caching, so Spark bases do not call `.cache()` during writes. A generated project's `main.py` or `bolt.py` can also be used as a Databricks `spark_python_task`: the shims handle missing `__file__` and successful `SystemExit(0)`. If the task starts outside the project directory and its script path is unavailable in `sys.argv[0]`, set `BOLT_PROJECT_ROOT` to the project's workspace directory. Install the scaffolded `requirements.txt` in the Jobs environment before invoking the script.
 
 ```toml
 # configs/spark/local.toml

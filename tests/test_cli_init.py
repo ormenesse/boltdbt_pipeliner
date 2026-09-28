@@ -18,6 +18,7 @@ def test_minimal_preset_produces_pandas_flatfile_project(tmp_path):
 
     assert (target / "configs" / "etl_config.yaml").is_file()
     assert (target / "configs" / "style_config.yaml").is_file()
+    assert (target / "requirements.txt").is_file()
     assert (target / "etl" / "_flatfile" / "flatfile_example.py").is_file()
     assert (target / "etl" / "0_bronze" / "bronze_example.py").is_file()
     assert (target / "macros" / "__init__.py").is_file()
@@ -210,6 +211,26 @@ def test_pyspark_preset_uses_etlbase(tmp_path):
     execute("demo", target_dir=target, preset="medallion")
     config = (target / "configs" / "etl_config.yaml").read_text(encoding="utf-8")
     assert "class_name: ETLBase" in config
+
+
+def test_databricks_scaffold_uses_delta_and_provides_runtime_dependencies(tmp_path):
+    target = tmp_path / "demo"
+    answers = _preset_answers("medallion", "demo", target)
+    answers.spark_profile = "databricks"
+    _scaffold(answers)
+
+    config = (target / "configs" / "etl_config.yaml").read_text(encoding="utf-8")
+    requirements = (target / "requirements.txt").read_text(encoding="utf-8")
+    assert "class_name: ETLBaseDelta" in config
+    assert "source_catalog: shared_catalog" in config
+    assert "questionary" in requirements
+    assert "typer" in requirements
+    assert "PyYAML" in requirements
+    assert "pyspark" not in requirements  # provided by Databricks runtime
+    assert (target / VENDOR_DIRNAME / "bolt_pipeliner" / "sessions" / "databricks.py").is_file()
+    example = (target / "etl" / "0_bronze" / "bronze_example.py").read_text(encoding="utf-8")
+    assert "self._write_delta(df)" in example
+    assert "self._replace_table_partitions" not in example
 
 
 def test_scaffold_refuses_non_empty_target(tmp_path):

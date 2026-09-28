@@ -185,3 +185,6 @@ outputs/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# folder 
+bugged_examples/

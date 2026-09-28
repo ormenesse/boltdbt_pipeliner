@@ -7,17 +7,18 @@ from bolt_pipeliner.bases._incremental import (
     incremental_values_desc,
 )
 from bolt_pipeliner.bases._io import detect_file_format, resolve_data_path, to_pandas_path, to_spark_path
+from bolt_pipeliner.bases._tables import bronze_table_identifier
 
 logging.basicConfig(level=logging.INFO)
 
 
 class ETLBase:
     """
-    ETL base for Spark + Iceberg (Glue).
+    ETL base for Spark-managed tables (Iceberg when explicitly configured).
     Rules:
       - flatfile: read CSV/Parquet/Excel/JSON from <bucket>/<path>
-      - bronze: DO NOT CHANGE (SQL from self.catalog as in original)
-      - else: read Iceberg from save_catalog.<fixed_schema>.<table>
+      - bronze: bare project table, source schema.table, or catalog.schema.table
+      - else: read from save_catalog.<fixed_schema>.<table>
       - writes: save_catalog.<fixed_schema>.<layer>_<output_table_name>
     """
 
@@ -44,6 +45,7 @@ class ETLBase:
         incremental_type=None,
         incremental_unit=None,
         incremental_date_grain=None,
+        table_format=None,
         **kwargs,
     ):
         self.spark = spark
@@ -60,6 +62,7 @@ class ETLBase:
         self.year_months = None  # Backward-compat alias.
         self.output_table_name = output_table_name
         self.fixed_schema = fixed_schema or self.DEFAULT_FIXED_SCHEMA
+        self.table_format = table_format
         self.incremental_policy = build_incremental_policy(
             enabled=incremental,
             column=incremental_column or self.DEFAULT_INCREMENTAL_COLUMN,
@@ -222,19 +225,15 @@ class ETLBase:
             return
 
         if self.layer == "bronze":
-            # DO NOT CHANGE: use the original SQL against self.catalog
-            for key in self.input_table_names.keys():
-                if "." in self.input_table_names[key]:
-                    self.input_tables[key] = self.spark.sql(
-                        f"""
-                            SELECT *
-                            FROM {self.catalog}.{self.input_table_names[key]}
-                        """
-                    )
-                else:
-                    table_ident = f"{self.save_catalog}.{self.fixed_schema}.{self.input_table_names[key]}"
-                    self.input_tables[key] = self.spark.read.table(table_ident)
-                print(f"{self.logging_string} - Loaded - {self.input_table_names[key]}")
+            for key, reference in self.input_table_names.items():
+                table_ident = bronze_table_identifier(
+                    reference,
+                    source_catalog=self.catalog,
+                    save_catalog=self.save_catalog,
+                    schema=self.fixed_schema,
+                )
+                self.input_tables[key] = self.spark.read.table(table_ident)
+                print(f"{self.logging_string} - Loaded - {table_ident}")
             return
 
         for key, name in self.input_table_names.items():
@@ -244,6 +243,8 @@ class ETLBase:
 
     def _create_table(self, df):
         writer = df.writeTo(self.iceberg_table)
+        if self.table_format:
+            writer = writer.using(self.table_format)
         if self.partition_by:
             writer = writer.partitionedBy(*[F.col(c) for c in self.partition_by])
         writer.createOrReplace()
@@ -252,16 +253,15 @@ class ETLBase:
         df.writeTo(self.iceberg_table).overwritePartitions()
 
     def unload_data(self, processed_df):
-        processed_df.cache()
         df_to_write = self._apply_incremental_policy(processed_df)
-        print(f"{self.logging_string} - Saving data to Iceberg table - {self.iceberg_table}...")
+        print(f"{self.logging_string} - Saving data to table - {self.iceberg_table}...")
 
         self._ensure_namespace(self.save_catalog, self.fixed_schema)
 
         self._create_table(df_to_write)
         self.table_exists = True
 
-        print(f"{self.logging_string} - Data successfully saved to Iceberg - {self.iceberg_table}")
+        print(f"{self.logging_string} - Data successfully saved to table - {self.iceberg_table}")
 
     def process_data(self, dfs):
         print(f"{self.logging_string} - Initializing processing...")

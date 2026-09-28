@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Databricks Spark session support: reuse an active Jobs/notebook session, create a session on a classic cluster, or connect to serverless with Databricks Connect.
+- Configurable `configs.source_catalog` for two-part bronze inputs and `table_format` for explicit Spark table providers such as Iceberg.
+- Generated projects now include a `requirements.txt` with framework and engine dependencies.
+
+### Changed
+- New Databricks Spark projects use `ETLBaseDelta` and schema-qualified Delta tables. The Delta base now honors `configs.schema` for reads and writes while preserving its legacy identifiers when no schema is configured.
+- Generated `bolt.py`, `main.py`, and `generate.py` locate the project when Databricks Jobs does not define `__file__` and treat a successful CLI `SystemExit(0)` as success. `BOLT_PROJECT_ROOT` can specify the project directory when needed.
+- The Spark `ETLBase` now describes its actual default-provider behavior; `table_format: iceberg` explicitly requests Iceberg when supported by the Spark runtime.
+
+### Fixed
+- Bronze reads accept fully qualified `catalog.schema.table` Unity Catalog references without prepending a fourth identifier component; two-part references continue to use the source catalog.
+- Spark Iceberg, Delta, and Parquet bases no longer call `.cache()` during writes, which Databricks serverless does not support.
+- Package builds no longer fail on setuptools versions that disagree about the accepted `[project].license` metadata form; the `LICENSE` file remains included in distributions.
+
 ## [0.2.7] - 2026-06-15
 
 ### Added

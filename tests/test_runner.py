@@ -207,6 +207,8 @@ def test_run_passes_job_incremental_overrides(tmp_path, monkeypatch):
                     "incremental_type": "int",
                     "incremental_unit": 5,
                     "incremental_date_grain": "monthly",
+                    "source_catalog": "raw_catalog",
+                    "table_format": "iceberg",
                 },
                 "layers": {"silver": "etl/1_silver"},
                 "silver": [
@@ -261,3 +263,5 @@ def test_run_passes_job_incremental_overrides(tmp_path, monkeypatch):
     assert kwargs["incremental_type"] == "int"
     assert kwargs["incremental_unit"] == 2
     assert kwargs["incremental_date_grain"] == "monthly"
+    assert kwargs["catalog"] == "raw_catalog"
+    assert kwargs["table_format"] == "iceberg"

@@ -31,6 +31,7 @@ class ETLBaseParquet:
         incremental_type=None,
         incremental_unit=None,
         incremental_date_grain=None,
+        catalog="shared_catalog",
         **kwargs,
     ):
         self.spark = spark
@@ -38,6 +39,7 @@ class ETLBaseParquet:
         self.input_table_names = input_tables
         self.output_table_name = output_table_name
         self.bucket = bucket
+        self.catalog = catalog
         self.input_tables = {}
         self.parquet_path = to_spark_path(
             resolve_data_path(
@@ -198,14 +200,17 @@ class ETLBaseParquet:
             return
 
         if self.layer == "bronze":
-            for key in self.input_table_names.keys():
+            for key, reference in self.input_table_names.items():
+                table_ident = (
+                    f"{self.catalog}.{reference}" if reference.count(".") < 2 else reference
+                )
                 self.input_tables[key] = self.spark.sql(
                     f"""
                         SELECT *
-                        FROM shared_catalog.{self.input_table_names[key]}
+                        FROM {table_ident}
                     """
                 )
-                logging.info(f"{self.logging_string} - Loaded - {self.input_table_names[key]}")
+                logging.info(f"{self.logging_string} - Loaded - {table_ident}")
         elif self.layer == "flatfile":
             for key, source in self.input_table_names.items():
                 self.input_tables[key] = self._read_input_df(source)
@@ -217,7 +222,6 @@ class ETLBaseParquet:
                 logging.info(f"{self.logging_string} - Loaded - {source}")
 
     def unload_data(self, processed_df):
-        processed_df.cache()
         df_to_write = self._apply_incremental_policy(processed_df)
 
         logging.info(

@@ -7,6 +7,7 @@ from bolt_pipeliner.bases._incremental import (
     incremental_values_desc,
 )
 from bolt_pipeliner.bases._io import detect_file_format, resolve_data_path, to_pandas_path, to_spark_path
+from bolt_pipeliner.bases._tables import bronze_table_identifier
 
 logging.basicConfig(level=logging.INFO)
 
@@ -14,18 +15,19 @@ logging.basicConfig(level=logging.INFO)
 class ETLBaseDelta:
     """
 
+    ETL base for Spark Delta tables on Synapse or Databricks.
+
+    Rules:
+      - flatfile: read CSV/Parquet/Excel/JSON from <bucket>/<path>
+      - bronze: bare project table, source schema.table, or catalog.schema.table
+      - else: read tables from <save_catalog>.<schema>.<table> when a schema is set
+      - writes: Delta to output_table
+    """
+
     DEFAULT_INCREMENTAL_COLUMN = "year_month"
     DEFAULT_INCREMENTAL_TYPE = "int"
     DEFAULT_INCREMENTAL_UNIT = 3
     DEFAULT_INCREMENTAL_DATE_GRAIN = "monthly"
-    ETL base for Spark on Synapse using Delta tables only.
-
-    Rules:
-      - flatfile: read CSV/Parquet/Excel/JSON from <bucket>/<path>
-      - bronze: full SQL (e.g. "SELECT * FROM `esm`.`invoice`") or catalog.table
-      - else: read tables from <save_catalog>.<table>
-      - writes: Delta to output_table
-    """
 
     def __init__(
         self,
@@ -39,6 +41,7 @@ class ETLBaseDelta:
         incremental=True,
         catalog="shared_catalog",
         save_catalog="dev_catalog",
+        fixed_schema=None,
         output_table=False,
         output_format="delta",
         incremental_column=None,
@@ -54,6 +57,7 @@ class ETLBaseDelta:
         self.input_tables = {}
         self.catalog = catalog
         self.save_catalog = save_catalog
+        self.fixed_schema = fixed_schema
         self.partition_by = partition_by
         self.unload = unload
         self.incremental = incremental
@@ -74,7 +78,8 @@ class ETLBaseDelta:
         )
         self.incremental_column = self.incremental_policy.column
         self.logging_string = f"{self.layer} {self.output_table_name}"
-        self._write_table = self.save_catalog + "." + self.layer + "_" + self.output_table_name
+        namespace = f"{self.save_catalog}.{self.fixed_schema}" if self.fixed_schema else self.save_catalog
+        self._write_table = f"{namespace}.{self.layer}_{self.output_table_name}"
         self.table_exists = self._table_exists(self._write_table)
 
     def _read_excel(self, path: str):
@@ -216,24 +221,25 @@ class ETLBaseDelta:
             return
 
         if self.layer == "bronze":
-            for key in self.input_table_names.keys():
-                self.input_tables[key] = self.spark.sql(
-                    f"""
-                        SELECT *
-                        FROM {self.input_table_names[key]}
-                    """
+            for key, reference in self.input_table_names.items():
+                table_ident = (
+                    bronze_table_identifier(
+                        reference,
+                        source_catalog=self.catalog,
+                        save_catalog=self.save_catalog,
+                        schema=self.fixed_schema or "",
+                    )
+                    if self.fixed_schema or "." in reference
+                    else reference
                 )
-                logging.info(f"{self.logging_string} - Loaded - {self.input_table_names[key]}")
+                self.input_tables[key] = self.spark.read.table(table_ident)
+                logging.info(f"{self.logging_string} - Loaded - {table_ident}")
             return
 
         for key, name in self.input_table_names.items():
-            table_ident = f"{self.save_catalog}.{name}"
-            self.input_tables[key] = self.spark.sql(
-                f"""
-                    SELECT *
-                    FROM {self.save_catalog}.{self.input_table_names[key]}
-                """
-            )
+            namespace = f"{self.save_catalog}.{self.fixed_schema}" if self.fixed_schema else self.save_catalog
+            table_ident = f"{namespace}.{name}"
+            self.input_tables[key] = self.spark.read.table(table_ident)
             print(f"{self.logging_string} - Loaded - {table_ident}")
 
     def _write_delta(self, processed_df):
@@ -247,8 +253,9 @@ class ETLBaseDelta:
         writer.saveAsTable(self._write_table)
 
     def unload_data(self, processed_df):
-        processed_df.cache()
         df_to_write = self._apply_incremental_policy(processed_df)
+        if self.fixed_schema:
+            self.spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {self.save_catalog}.{self.fixed_schema}")
         print(f"{self.logging_string} - Saving data to Delta table - {self._write_table}...")
         self._write_delta(df_to_write)
         print(f"{self.logging_string} - Data successfully saved to Delta - {self._write_table}")

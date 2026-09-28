@@ -7,7 +7,6 @@ name = "bolt_pipeliner"
 description = "Config-driven ETL framework for Spark, Pandas, and Polars."
 readme = "README.md"
 requires-python = ">=3.10"
-license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Vinicius Ormenesse" }]
 keywords = ["etl", "spark", "iceberg", "data-engineering", "airflow", "polars", "pandas", "dbt"]
