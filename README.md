@@ -18,6 +18,8 @@ The framework is inspired by dbt's `tests:` ergonomics but stays Python-first: j
 
 ---
 
+[![skills.sh](https://skills.sh/b/ormenesse/boltdbt_pipeliner)](https://skills.sh/ormenesse/boltdbt_pipeliner)
+
 ## Table of contents
 
 1. [Installation](#installation)
@@ -97,6 +99,7 @@ my_project/
 ├── configs/
 │   ├── etl_config.yaml
 │   ├── style_config.yaml                   # colors for `bolt generate documentation`
+│   ├── bolt_environment.yaml                # non-secret setup decisions for agents
 │   └── spark/<profile>.toml                # only when engine=pyspark
 ├── etl/
 │   ├── _flatfile/flatfile_example.py
@@ -122,6 +125,36 @@ my_project/
 It refuses to write into a non-empty directory.
 
 `configs/style_config.yaml` is **always** scaffolded (it's required by `bolt generate documentation`) and is pre-populated with a color palette matching whichever layers you picked.
+
+`configs/bolt_environment.yaml` records the non-secret decisions made by the
+wizard, such as engine, layers, execution environment, storage locations, ML,
+and vendoring. It helps an agent resume or adapt a project later. The executable
+job graph remains in `configs/etl_config.yaml`; do not put credentials or secret
+values in the environment profile.
+
+## Agent skill (skills.sh)
+
+This repository includes a `bolt-pipeliner` Agent Skill for creating and
+adapting projects through compatible coding agents. It asks for the pipeline's
+environment, reads the persisted setup, and keeps jobs, macros, notebooks, and
+generated artifacts in their framework locations.
+
+Install it from GitHub with:
+
+```bash
+npx skills add ormenesse/boltdbt_pipeliner --skill bolt-pipeliner
+```
+
+Test the local copy before pushing:
+
+```bash
+npx skills add . --skill bolt-pipeliner
+npx skills use . --skill bolt-pipeliner
+```
+
+There is no separate skills.sh registration step. Once this public repository
+is pushed, the skills CLI can discover it and the skills.sh page will appear
+after the repository is observed by the directory.
 
 ---
 
@@ -586,6 +619,7 @@ my_project/
 ├── configs/
 │   ├── etl_config.yaml           # source of truth — layers, jobs, tests
 │   ├── style_config.yaml         # colors used by `bolt generate documentation`
+│   ├── bolt_environment.yaml     # non-secret setup decisions for agents
 │   └── spark/<profile>.toml      # cluster overrides per runtime profile
 ├── etl/
 │   ├── _flatfile/                # raw ingestion
